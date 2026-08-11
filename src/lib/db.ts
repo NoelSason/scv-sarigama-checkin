@@ -1,5 +1,4 @@
 import { neon, neonConfig, Pool, type PoolClient } from '@neondatabase/serverless'
-import ws from 'ws'
 
 /**
  * Database access via Neon's driver.
@@ -19,9 +18,6 @@ import ws from 'ws'
  * Plain TCP on 5432 is also supported by Neon but is unreliable on some
  * networks (it fails on this developer machine), so we don't use it anywhere.
  */
-
-// Node needs an explicit WebSocket implementation; browsers/edge have one.
-neonConfig.webSocketConstructor = ws
 
 const globalForDb = globalThis as unknown as {
   __onamSql?: ReturnType<typeof neon>
@@ -43,8 +39,20 @@ function sqlClient() {
   return globalForDb.__onamSql
 }
 
-export function pool(): Pool {
+/**
+ * WebSocket pool, for transactions only.
+ *
+ * `ws` is required lazily rather than imported at module scope: every request
+ * path except the import batch uses HTTP, and pulling a WebSocket
+ * implementation into those bundles is both wasted weight and — as this
+ * project found out in production — a way to break the function at boot.
+ */
+export async function pool(): Promise<Pool> {
   if (!globalForDb.__onamPool) {
+    if (!neonConfig.webSocketConstructor) {
+      const { default: ws } = await import('ws')
+      neonConfig.webSocketConstructor = ws
+    }
     globalForDb.__onamPool = new Pool({ connectionString: connectionString() })
   }
   return globalForDb.__onamPool
@@ -73,7 +81,7 @@ export async function queryOne<T = Record<string, unknown>>(
  * whole batch either lands or doesn't.
  */
 export async function transaction<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
-  const client = await pool().connect()
+  const client = await (await pool()).connect()
   try {
     await client.query('BEGIN')
     const result = await fn(client)
