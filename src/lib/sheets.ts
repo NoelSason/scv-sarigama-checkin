@@ -315,7 +315,19 @@ export function parseSheetRows(rows: string[][]): ParseResult {
     const displayName = cell(values, columns.name)
     const paymentMode = cell(values, columns.mode)
 
-    if (values.every((v) => v.trim() === '')) {
+    // "Empty" means carrying no identity, not literally every cell blank.
+    // The real sheet's trailing rows hold a drag-filled timestamp and default
+    // checkboxes (Pre-pay TRUE, Bands FALSE, performing No) with no name,
+    // amount, head count, or payment mode. Requiring every cell to be blank
+    // sent ten of those to the review queue as if money were unaccounted for,
+    // which buries the flags that actually matter.
+    const carriesIdentity =
+      displayName !== '' ||
+      paymentMode !== '' ||
+      cell(values, columns.amount) !== '' ||
+      cell(values, columns.people) !== ''
+
+    if (!carriesIdentity) {
       skipped.push({ ...base, reason: 'empty_row', paymentMode, displayName, fingerprint: null, needsReview: false })
       continue
     }

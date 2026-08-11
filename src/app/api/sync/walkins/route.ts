@@ -45,12 +45,17 @@ type Row = {
 export async function GET(req: Request) {
   if (!authorized(req)) return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 })
 
+  // Walk-ins AND new online Square sales. Both are money the sheet would
+  // otherwise never learn about: previously somebody typed each card purchase
+  // in by hand. Everything present at import time was backfilled as already
+  // exported, so the 51 Credit Card rows already in the sheet are not
+  // duplicated — only sales made from here on flow back.
   const rows = await query<Row>(
     `select id, display_name, amount_paid_cents, tickets_purchased, children_under_6,
             payment_method::text as payment_method, payment_status::text as payment_status,
             email, phone, created_at
        from households
-      where source = 'walk_in'
+      where source in ('walk_in', 'square')
         and exported_to_sheet_at is null
         and not is_test
         and payment_status in ('paid', 'comped')
@@ -62,9 +67,15 @@ export async function GET(req: Request) {
   // Timestamp | Your Name | Amount Paid | No Of People | Payment Mode |
   // Pre-pay | Bands? | performing? | Individual or Group? | Details
   const values = rows.map((r) => {
-    const method = r.payment_status === 'comped' ? 'Comp' : titleCase(r.payment_method ?? 'other')
+    const method =
+      r.payment_status === 'comped'
+        ? 'Comp'
+        : r.payment_method === 'square'
+          ? 'Credit Card'
+          : titleCase(r.payment_method ?? 'other')
+
     const notes = [
-      'Added at the door via check-in app',
+      r.payment_method === 'square' ? 'Bought online' : 'Added at the door via check-in app',
       r.children_under_6 > 0 ? `${r.children_under_6} under 6 (free)` : null,
       r.email,
       r.phone,

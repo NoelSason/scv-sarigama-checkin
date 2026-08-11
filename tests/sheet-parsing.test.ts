@@ -461,3 +461,40 @@ describe('walk-in write-back cannot round-trip into a duplicate', () => {
     expect(result.skipped[0].needsReview).toBe(true)
   })
 })
+
+describe('trailing rows that carry no identity', () => {
+  // The real sheet ends with rows holding a drag-filled timestamp and default
+  // checkboxes but no name, amount, head count, or payment mode. Ten of these
+  // were reaching the review queue as if money were unaccounted for, which
+  // buries the flags that actually matter.
+  const ghost = (timestamp: string) => [timestamp, '', '', '', '', 'TRUE', 'FALSE', 'No', '', '']
+
+  it('treats a row with default checkboxes but no data as empty, not for review', () => {
+    const result = parseSheetRows([
+      HEADERS,
+      ghost('8/27/2024 20:03:42'),
+      ghost('8/27/2024 21:07:32'),
+    ])
+
+    expect(result.rows).toHaveLength(0)
+    expect(result.skipped.map((s) => s.reason)).toEqual(['empty_row', 'empty_row'])
+    expect(result.skipped.every((s) => s.needsReview === false)).toBe(true)
+  })
+
+  it('still flags a row that has real data but no payment mode', () => {
+    const result = parseSheetRows([
+      HEADERS,
+      ['8/27/2024 20:03:42', 'Someone Real', '75.00', '3', '', 'TRUE', 'FALSE', 'No', '', ''],
+    ])
+    expect(result.skipped[0].reason).toBe('missing_payment_mode')
+    expect(result.skipped[0].needsReview).toBe(true)
+  })
+
+  it('flags a name with no mode — money may be missing', () => {
+    const result = parseSheetRows([
+      HEADERS,
+      ['', 'Named But Blank', '', '', '', 'TRUE', 'FALSE', 'No', '', ''],
+    ])
+    expect(result.skipped[0].needsReview).toBe(true)
+  })
+})
