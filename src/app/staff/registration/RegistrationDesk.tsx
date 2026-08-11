@@ -211,6 +211,7 @@ function HouseholdPanel({
   const [reveal, setReveal] = useState(false)
   const [loadError, setLoadError] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
+  const [done, setDone] = useState<string | null>(null)
 
   // The parent rebuilds onUpdated every render; holding it in a ref keeps it
   // out of the effect's dependencies without going stale.
@@ -243,11 +244,19 @@ function HouseholdPanel({
     }
   }, [id, reloadKey])
 
-  function applyChange(h: Household) {
+  // Closing the sub-panel on success is not enough feedback on its own — the
+  // banner says in words what just changed, and stays until the next action.
+  function applyChange(h: Household, message: string) {
     setHousehold(h)
     onUpdated(h)
     setTab(null)
+    setDone(message)
     setReloadKey((k) => k + 1)
+  }
+
+  function openTab(next: Tab) {
+    setDone(null)
+    setTab(toggle(tab, next))
   }
 
   return (
@@ -424,7 +433,7 @@ function EditPanel({
   onSaved,
 }: {
   household: Household
-  onSaved: (h: Household) => void
+  onSaved: (h: Household, message: string) => void
 }) {
   const [name, setName] = useState(household.display_name)
   const [email, setEmail] = useState(household.email ?? '')
@@ -451,7 +460,7 @@ function EditPanel({
         )
         return
       }
-      onSaved(data.household)
+      onSaved(data.household, 'Contact details updated.')
     } catch {
       setError('Could not reach the server. Nothing was saved.')
     } finally {
@@ -512,7 +521,7 @@ function PaymentPanel({
   onSaved,
 }: {
   household: Household
-  onSaved: (h: Household) => void
+  onSaved: (h: Household, message: string) => void
 }) {
   const [choice, setChoice] = useState<{ status: PaymentStatus; method?: PaymentMethod } | null>(
     null,
@@ -542,7 +551,7 @@ function PaymentPanel({
         setError('Could not save. Nothing was changed.')
         return
       }
-      onSaved(data.household)
+      onSaved(data.household, `Payment marked ${choice.status.replace('_', ' ')}.`)
     } catch {
       setError('Could not reach the server. Nothing was changed.')
     } finally {
@@ -626,7 +635,7 @@ function TicketsPanel({
   onSaved,
 }: {
   household: Household
-  onSaved: (h: Household) => void
+  onSaved: (h: Household, message: string) => void
 }) {
   const [value, setValue] = useState(String(household.tickets_purchased))
   const [reason, setReason] = useState('')
@@ -658,7 +667,10 @@ function TicketsPanel({
         setConfirming(false)
         return
       }
-      onSaved(data.household)
+      onSaved(
+        data.household,
+        `Admissions changed from ${household.tickets_purchased} to ${next}.`,
+      )
     } catch {
       setError('Could not reach the server. Nothing was changed.')
       setConfirming(false)

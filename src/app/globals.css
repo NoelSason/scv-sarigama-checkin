@@ -61,24 +61,31 @@ button {
   font-size: 16px;
 }
 
-/* Big, unambiguous touch targets for gloved/hurried hands. */
-.btn {
+/* Big, unambiguous touch targets for gloved/hurried hands.
+   The shared base is listed as a selector group rather than @apply'd into each
+   variant: Tailwind v4 only lets @apply pull in core utilities, not our own
+   classes. Grouping keeps `btn-primary` usable on its own in markup. */
+.btn,
+.btn-primary,
+.btn-gold,
+.btn-neutral,
+.btn-danger {
   @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-4
          font-semibold transition active:scale-[0.98] disabled:opacity-40
          disabled:pointer-events-none;
   min-height: 3.25rem;
 }
 .btn-primary {
-  @apply btn bg-[var(--green)] text-white hover:bg-[var(--green-deep)];
+  @apply bg-[var(--green)] text-white hover:bg-[var(--green-deep)];
 }
 .btn-gold {
-  @apply btn bg-[var(--gold)] text-white hover:bg-[var(--gold-deep)];
+  @apply bg-[var(--gold)] text-white hover:bg-[var(--gold-deep)];
 }
 .btn-neutral {
-  @apply btn border-2 border-black/15 bg-white text-[var(--foreground)] hover:bg-black/5;
+  @apply border-2 border-black/15 bg-white text-[var(--foreground)] hover:bg-black/5;
 }
 .btn-danger {
-  @apply btn border-2 border-[var(--danger)] bg-white text-[var(--danger)] hover:bg-[var(--danger-bg)];
+  @apply border-2 border-[var(--danger)] bg-white text-[var(--danger)] hover:bg-[var(--danger-bg)];
 }
 
 .field {

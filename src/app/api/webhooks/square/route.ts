@@ -245,44 +245,53 @@ async function handlePayment(
   const contact = await resolveContact(client, order)
   const displayName = contact.name ?? contact.email ?? `Square order ${orderId}`
 
-  const existing = await queryOne<HouseholdRow>(
-    `select id, display_name, email, phone, tickets_purchased, tickets_redeemed,
-            children_under_6, payment_status, amount_paid_cents, pass_enabled
-       from households where square_order_id = $1`,
-    [orderId],
-  )
-
   const status = paymentStatusFor(entitlement)
   const amountCents = entitlement.amountCents
 
+  // payment.created and payment.updated for the same order arrive nearly
+  // together, so the insert must be the thing that decides who wins — not a
+  // preceding SELECT. ON CONFLICT DO NOTHING makes the loser fall through to
+  // the update path instead of raising a unique violation.
+  const created = await queryOne<{ id: string }>(
+    `insert into households
+       (display_name, email, phone, normalized_email, normalized_phone,
+        tickets_purchased, children_under_6, payment_status, payment_method,
+        amount_paid_cents, pass_token, source, source_record_id,
+        square_order_id, square_payment_id, notes)
+     values ($1,$2,$3,$4,$5,$6,$7,$8::payment_status,'square',$9,$10,'square',$11,$11,$12,$13)
+     on conflict (square_order_id) where square_order_id is not null do nothing
+     returning id`,
+    [
+      displayName,
+      contact.email,
+      contact.phone,
+      normalizeEmail(contact.email),
+      normalizePhone(contact.phone),
+      entitlement.ticketsPurchased,
+      entitlement.childrenUnder6,
+      status,
+      amountCents,
+      generatePassToken(),
+      orderId,
+      payment.id ?? null,
+      entitlement.rule,
+    ],
+  )
+
+  const existing = created
+    ? null
+    : await queryOne<HouseholdRow>(
+        `select id, display_name, email, phone, tickets_purchased, tickets_redeemed,
+                children_under_6, payment_status, amount_paid_cents, pass_enabled
+           from households where square_order_id = $1`,
+        [orderId],
+      )
+
   let householdId: string
-  if (!existing) {
-    const created = await queryOne<{ id: string }>(
-      `insert into households
-         (display_name, email, phone, normalized_email, normalized_phone,
-          tickets_purchased, children_under_6, payment_status, payment_method,
-          amount_paid_cents, pass_token, source, source_record_id,
-          square_order_id, square_payment_id, notes)
-       values ($1,$2,$3,$4,$5,$6,$7,$8::payment_status,'square',$9,$10,'square',$11,$11,$12,$13)
-       returning id`,
-      [
-        displayName,
-        contact.email,
-        contact.phone,
-        normalizeEmail(contact.email),
-        normalizePhone(contact.phone),
-        entitlement.ticketsPurchased,
-        entitlement.childrenUnder6,
-        status,
-        amountCents,
-        generatePassToken(),
-        orderId,
-        payment.id ?? null,
-        entitlement.rule,
-      ],
-    )
-    householdId = created!.id
+  if (created) {
+    householdId = created.id
   } else {
+    if (!existing) throw new Error(`household for Square order ${orderId} vanished mid-write`)
     householdId = existing.id
 
     // The database CHECK would reject this anyway; refuse it here so a human
@@ -343,7 +352,7 @@ async function handlePayment(
     })
   }
 
-  await logAudit(existing ? 'square.webhook.household_updated' : 'square.webhook.household_created', {
+  await logAudit(created ? 'square.webhook.household_created' : 'square.webhook.household_updated', {
     actorType: 'webhook',
     householdId,
     metadata: { event_id: eventId, order_id: orderId, rule: entitlement.rule },

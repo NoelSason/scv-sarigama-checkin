@@ -33,7 +33,7 @@ export const ROLE_LABEL: Record<VariationRole, string> = {
 /** Catalog variation id → role. Built from env, never from names. */
 export type VariationMap = Record<string, VariationRole>
 
-export function variationMapFromEnv(env: NodeJS.ProcessEnv = process.env): VariationMap {
+export function variationMapFromEnv(env: Record<string, string | undefined> = process.env): VariationMap {
   const entries: Array<[string, VariationRole]> = [
     [env.SQUARE_VARIATION_ADULT ?? '', 'adult'],
     [env.SQUARE_VARIATION_UNDER6 ?? '', 'under6'],
@@ -51,7 +51,7 @@ export function variationMapFromEnv(env: NodeJS.ProcessEnv = process.env): Varia
   return map
 }
 
-export function squareClient(env: NodeJS.ProcessEnv = process.env): SquareClient {
+export function squareClient(env: Record<string, string | undefined> = process.env): SquareClient {
   const token = env.SQUARE_ACCESS_TOKEN
   if (!token) throw new Error('SQUARE_ACCESS_TOKEN is not set')
   return new SquareClient({
@@ -63,7 +63,7 @@ export function squareClient(env: NodeJS.ProcessEnv = process.env): SquareClient
   })
 }
 
-export function squareLocationId(env: NodeJS.ProcessEnv = process.env): string {
+export function squareLocationId(env: Record<string, string | undefined> = process.env): string {
   const id = env.SQUARE_LOCATION_ID
   if (!id) throw new Error('SQUARE_LOCATION_ID is not set')
   return id
@@ -73,7 +73,7 @@ export function squareLocationId(env: NodeJS.ProcessEnv = process.env): string {
  * The URL Square signs against. Must byte-match the notification URL registered
  * on the webhook subscription, including scheme and any trailing path.
  */
-export function webhookNotificationUrl(env: NodeJS.ProcessEnv = process.env): string {
+export function webhookNotificationUrl(env: Record<string, string | undefined> = process.env): string {
   const explicit = env.SQUARE_WEBHOOK_NOTIFICATION_URL
   if (explicit) return explicit
   const base = (env.APP_BASE_URL ?? '').replace(/\/$/, '')
@@ -361,15 +361,20 @@ export async function findCatalogItems(
     includeRelatedObjects: true,
   })
 
+  // An item's `variations` are often id-only stubs; the real objects come back
+  // in relatedObjects when includeRelatedObjects is set.
   const related = new Map<string, Square.CatalogObject>()
-  for (const object of res.relatedObjects ?? []) related.set(object.id, object)
+  for (const object of res.relatedObjects ?? []) {
+    if (object.id) related.set(object.id, object)
+  }
 
   const items: CatalogItemSummary[] = []
   for (const object of res.objects ?? []) {
-    if (object.type !== 'ITEM') continue
+    if (object.type !== 'ITEM' || !object.id) continue
     const variations: CatalogVariation[] = []
     for (const raw of object.itemData?.variations ?? []) {
-      const resolved = toVariation(raw) ?? toVariation(related.get(raw.id) ?? raw)
+      const full = raw.id ? (related.get(raw.id) ?? raw) : raw
+      const resolved = toVariation(raw) ?? toVariation(full)
       if (resolved) variations.push(resolved)
     }
     items.push({ id: object.id, name: object.itemData?.name ?? null, variations })
