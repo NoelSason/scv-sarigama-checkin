@@ -242,7 +242,20 @@ async function handlePayment(
     return null
   }
 
-  const contact = await resolveContact(client, order)
+  // Refetch the payment through the SDK: the webhook envelope carries only a
+  // trimmed payment object, and the buyer's name lives on the full record's
+  // shippingAddress. Without this, new sales arrive as nameless households and
+  // the registration desk cannot find them by name.
+  let fullPayment: Square.Payment | undefined
+  if (payment.id) {
+    try {
+      fullPayment = (await client.payments.get({ paymentId: payment.id })).payment
+    } catch {
+      // Contact detail is a nicety; never fail provisioning over it.
+    }
+  }
+
+  const contact = await resolveContact(client, order, undefined, fullPayment)
   const displayName = contact.name ?? contact.email ?? `Square order ${orderId}`
 
   const status = paymentStatusFor(entitlement)

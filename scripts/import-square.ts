@@ -23,7 +23,7 @@ import type { PoolClient } from '@neondatabase/serverless'
 import type { Square } from 'square'
 import { query, transaction } from '../src/lib/db'
 import {
-  fetchCompletedOrders,
+  fetchPaidOrders,
   mapOrderToEntitlement,
   paymentStatusFor,
   resolveContact,
@@ -88,9 +88,10 @@ async function main() {
   const variationMap = variationMapFromEnv()
   const locationId = squareLocationId()
 
-  console.log(`Fetching COMPLETED orders since ${since} …`)
-  const orders = await fetchCompletedOrders(client, { locationId, since, max })
-  console.log(`  ${orders.length} orders`)
+  // Payment-driven: an order only counts if money actually arrived for it.
+  console.log(`Fetching paid orders since ${since} …`)
+  const { orders, paymentsByOrder } = await fetchPaidOrders(client, { locationId, since, max })
+  console.log(`  ${orders.length} paid orders`)
 
   // Every order we have already imported, in one round trip.
   const orderIds = orders.map((o) => o.id).filter((id): id is string => Boolean(id))
@@ -116,7 +117,13 @@ async function main() {
       continue
     }
 
-    const contact = await resolveContact(client, order, customerCache)
+    // The payment carries the buyer's name and email; the order does not.
+    const contact = await resolveContact(
+      client,
+      order,
+      customerCache,
+      order.id ? paymentsByOrder.get(order.id) : undefined,
+    )
     const existing = order.id ? (existingByOrder.get(order.id) ?? null) : null
     const paymentStatus = paymentStatusFor(entitlement)
 

@@ -282,16 +282,41 @@ export function contactFromOrder(order: Square.Order): Contact {
  * Order first, customer record only as a fallback — the pickup recipient is who
  * actually shows up at the desk, which is not always the account holder.
  */
+/**
+ * Buyer identity for a Square Online sale.
+ *
+ * Order of preference matters, and is driven by where the data actually lives
+ * in this account rather than where the docs suggest it might:
+ *
+ *   1. the PAYMENT — `buyerEmailAddress` and `shippingAddress.firstName/
+ *      lastName`. This is the only place a Square Online ticket sale reliably
+ *      records who bought it.
+ *   2. the order's fulfillment recipient — empty here: these fulfillments are
+ *      type DIGITAL with no recipient block.
+ *   3. the customer record — reached via `payment.customerId`, because
+ *      `order.customerId` is undefined on every one of these orders.
+ *
+ * Without step 1 the import produced 52 nameless households, which would have
+ * been unfindable at the registration desk.
+ */
 export async function resolveContact(
   client: SquareClient,
   order: Square.Order,
   cache?: Map<string, Square.Customer | null>,
+  payment?: Square.Payment,
 ): Promise<Contact> {
   const fromOrder = contactFromOrder(order)
-  if (fromOrder.email && fromOrder.name) return fromOrder
+  const fromPayment = contactFromPayment(payment)
 
-  const customerId = order.customerId?.trim()
-  if (!customerId) return fromOrder
+  const merged: Contact = {
+    name: fromOrder.name ?? fromPayment.name,
+    email: fromOrder.email ?? fromPayment.email,
+    phone: fromOrder.phone ?? fromPayment.phone,
+  }
+  if (merged.email && merged.name) return merged
+
+  const customerId = (order.customerId ?? payment?.customerId)?.trim()
+  if (!customerId) return merged
 
   let customer = cache?.get(customerId) ?? null
   if (!cache?.has(customerId)) {
@@ -303,7 +328,7 @@ export async function resolveContact(
     }
     cache?.set(customerId, customer)
   }
-  if (!customer) return fromOrder
+  if (!customer) return merged
 
   const fullName = [customer.givenName, customer.familyName]
     .map((p) => p?.trim())
@@ -311,9 +336,28 @@ export async function resolveContact(
     .join(' ')
 
   return {
-    name: fromOrder.name ?? (fullName || customer.companyName?.trim() || null),
-    email: fromOrder.email ?? (customer.emailAddress?.trim() || null),
-    phone: fromOrder.phone ?? (customer.phoneNumber?.trim() || null),
+    name: merged.name ?? (fullName || customer.companyName?.trim() || null),
+    email: merged.email ?? (customer.emailAddress?.trim() || null),
+    phone: merged.phone ?? (customer.phoneNumber?.trim() || null),
+  }
+}
+
+/** Name/email/phone as recorded on the payment itself. */
+function contactFromPayment(payment?: Square.Payment): Contact {
+  if (!payment) return { name: null, email: null, phone: null }
+
+  const addr = payment.shippingAddress ?? payment.billingAddress
+  const name = [addr?.firstName, addr?.lastName]
+    .map((p) => p?.trim())
+    .filter(Boolean)
+    .join(' ')
+
+  // Square's Address type carries no phone field; a phone number, when there
+  // is one, comes from the customer record instead.
+  return {
+    name: name || null,
+    email: payment.buyerEmailAddress?.trim() || null,
+    phone: null,
   }
 }
 
@@ -398,32 +442,52 @@ export async function findVariationsBySku(
 // Orders
 // ---------------------------------------------------------------------------
 
-/** Every COMPLETED order at the location, oldest first, following the cursor. */
-export async function fetchCompletedOrders(
+/**
+ * Orders that were actually paid for, oldest first.
+ *
+ * Driven by PAYMENTS, not by order state. This matters: Square Online leaves a
+ * ticket order in state OPEN forever, because nothing ever marks it fulfilled.
+ * Filtering orders on state = COMPLETED returned 1 of 53 real sales here — an
+ * import that would have quietly issued almost no tickets.
+ *
+ * Going through payments also excludes the 15 DRAFT orders sitting in this
+ * account, which are abandoned checkouts that were never paid. Money received
+ * is the only thing that should ever grant an admission.
+ */
+export async function fetchPaidOrders(
   client: SquareClient,
   opts: { locationId: string; since?: string; max?: number },
-): Promise<Square.Order[]> {
-  const orders: Square.Order[] = []
+): Promise<{ orders: Square.Order[]; paymentsByOrder: Map<string, Square.Payment> }> {
+  const paymentsByOrder = new Map<string, Square.Payment>()
   let cursor: string | undefined
 
   do {
-    const res = await client.orders.search({
-      locationIds: [opts.locationId],
+    const res = await client.payments.list({
+      locationId: opts.locationId,
+      beginTime: opts.since,
       cursor,
-      limit: 500,
-      query: {
-        filter: {
-          stateFilter: { states: ['COMPLETED'] },
-          ...(opts.since
-            ? { dateTimeFilter: { createdAt: { startAt: opts.since } } }
-            : {}),
-        },
-        sort: { sortField: 'CREATED_AT', sortOrder: 'ASC' },
-      },
+      limit: 100,
     })
-    orders.push(...(res.orders ?? []))
-    cursor = res.cursor
-  } while (cursor && (opts.max == null || orders.length < opts.max))
+    for (const payment of res.data ?? []) {
+      if (payment.status !== 'COMPLETED') continue
+      if (!payment.orderId) continue
+      // One payment per order is the norm here; keep the first COMPLETED one.
+      if (!paymentsByOrder.has(payment.orderId)) {
+        paymentsByOrder.set(payment.orderId, payment)
+      }
+    }
+    cursor = res.response?.cursor
+  } while (cursor && (opts.max == null || paymentsByOrder.size < opts.max))
 
-  return opts.max == null ? orders : orders.slice(0, opts.max)
+  const ids = [...paymentsByOrder.keys()].slice(0, opts.max ?? undefined)
+  const orders: Square.Order[] = []
+
+  // batchGet caps at 100 ids per call.
+  for (let i = 0; i < ids.length; i += 100) {
+    const res = await client.orders.batchGet({ orderIds: ids.slice(i, i + 100) })
+    orders.push(...(res.orders ?? []))
+  }
+
+  orders.sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''))
+  return { orders, paymentsByOrder }
 }
