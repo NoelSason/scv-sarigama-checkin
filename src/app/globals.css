@@ -1,26 +1,96 @@
 @import "tailwindcss";
 
+/*
+ * Onam palette. Deliberately light-only: staff use this outdoors in daylight
+ * on borrowed phones, and a dark scheme kicking in from a device setting would
+ * hurt legibility and wreck QR contrast. High contrast beats theming here.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #fdfaf3;
+  --foreground: #1c1a14;
+
+  --gold: #c8951c;
+  --gold-deep: #8a6410;
+  --green: #1c6b4a;
+  --green-deep: #124a33;
+  --cream: #fff9ec;
+
+  --ok: #14713f;
+  --ok-bg: #e6f5ec;
+  --warn: #8a5a00;
+  --warn-bg: #fdf3dd;
+  --danger: #a4231c;
+  --danger-bg: #fdeceb;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-gold: var(--gold);
+  --color-gold-deep: var(--gold-deep);
+  --color-green: var(--green);
+  --color-green-deep: var(--green-deep);
+  --color-cream: var(--cream);
+  --color-ok: var(--ok);
+  --color-ok-bg: var(--ok-bg);
+  --color-warn: var(--warn);
+  --color-warn-bg: var(--warn-bg);
+  --color-danger: var(--danger);
+  --color-danger-bg: var(--danger-bg);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: light;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Volunteers tap fast and repeatedly; stop iOS treating that as zoom. */
+  touch-action: manipulation;
+}
+
+/* Inputs at 16px+ so iOS Safari doesn't zoom the viewport on focus — that
+   zoom is the single most disorienting thing at a busy registration desk. */
+input,
+select,
+textarea,
+button {
+  font-size: 16px;
+}
+
+/* Big, unambiguous touch targets for gloved/hurried hands. */
+.btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-4
+         font-semibold transition active:scale-[0.98] disabled:opacity-40
+         disabled:pointer-events-none;
+  min-height: 3.25rem;
+}
+.btn-primary {
+  @apply btn bg-[var(--green)] text-white hover:bg-[var(--green-deep)];
+}
+.btn-gold {
+  @apply btn bg-[var(--gold)] text-white hover:bg-[var(--gold-deep)];
+}
+.btn-neutral {
+  @apply btn border-2 border-black/15 bg-white text-[var(--foreground)] hover:bg-black/5;
+}
+.btn-danger {
+  @apply btn border-2 border-[var(--danger)] bg-white text-[var(--danger)] hover:bg-[var(--danger-bg)];
+}
+
+.field {
+  @apply w-full rounded-xl border-2 border-black/15 bg-white px-4 py-3
+         outline-none focus:border-[var(--green)];
+}
+
+.card {
+  @apply rounded-2xl border border-black/10 bg-white p-5 shadow-sm;
+}
+
+/* Status pills always pair colour with a text label — never colour alone. */
+.pill {
+  @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-bold;
 }
