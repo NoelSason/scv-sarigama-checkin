@@ -207,7 +207,10 @@ function HouseholdPanel({
   const id = initial.id
   const [household, setHousehold] = useState(initial)
   const [history, setHistory] = useState<HistoryItem[]>([])
-  const [tab, setTab] = useState<Tab | null>(null)
+  // Opens on the pass, because handing the pass over is the reason the desk
+  // exists: volunteer takes a name, the QR appears, the guest scans it with
+  // their own phone and walks away with it. Everything else is a correction.
+  const [tab, setTab] = useState<Tab | null>('pass')
   const [reveal, setReveal] = useState(false)
   const [loadError, setLoadError] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
@@ -345,7 +348,7 @@ function HouseholdPanel({
         </TabButton>
       </div>
 
-      {tab === 'pass' && <PassPanel householdId={household.id} />}
+      {tab === 'pass' && <PassPanel household={household} />}
       {tab === 'payment' && <PaymentPanel household={household} onSaved={applyChange} />}
       {tab === 'tickets' && <TicketsPanel household={household} onSaved={applyChange} />}
       {tab === 'edit' && <EditPanel household={household} onSaved={applyChange} />}
@@ -380,7 +383,18 @@ function TabButton({
 
 /* ------------------------------------------------------------------ */
 
-function PassPanel({ householdId }: { householdId: string }) {
+/**
+ * Pass hand-off at the desk.
+ *
+ * The guest points their own phone camera at this QR and lands on their pass,
+ * which they then keep. That is the whole delivery mechanism — it needs no
+ * email address, which matters because 40 of the 92 households paid by Zelle
+ * and we have no contact details for any of them.
+ *
+ * The same QR is what gets scanned at the Sadhya entrance later, because it
+ * encodes only the pass URL. Nothing here is specific to the hand-off.
+ */
+function PassPanel({ household }: { household: Household }) {
   const [state, setState] = useState<
     { kind: 'loading' } | { kind: 'ready'; dataUrl: string; url: string } | { kind: 'error' }
   >({ kind: 'loading' })
@@ -389,7 +403,7 @@ function PassPanel({ householdId }: { householdId: string }) {
     let live = true
     ;(async () => {
       try {
-        const res = await fetch(`/api/staff/household/${householdId}/pass`, { cache: 'no-store' })
+        const res = await fetch(`/api/staff/household/${household.id}/pass`, { cache: 'no-store' })
         if (!res.ok) throw new Error('pass failed')
         const data = (await res.json()) as { dataUrl: string; url: string }
         if (live) setState({ kind: 'ready', ...data })
@@ -400,7 +414,7 @@ function PassPanel({ householdId }: { householdId: string }) {
     return () => {
       live = false
     }
-  }, [householdId])
+  }, [household.id])
 
   if (state.kind === 'loading') return <div className="card text-center font-bold">Loading pass…</div>
   if (state.kind === 'error') {
@@ -413,15 +427,42 @@ function PassPanel({ householdId }: { householdId: string }) {
 
   return (
     <div className="card text-center">
-      {/* Data URL from our own server; next/image would only add indirection. */}
+      <p className="text-2xl font-black break-words">{household.display_name}</p>
+      <p className="mt-1 text-lg font-semibold text-[var(--green-deep)]">
+        {household.tickets_purchased} Sadhya admission
+        {household.tickets_purchased === 1 ? '' : 's'}
+        {household.children_under_6 > 0 && (
+          <span className="block text-sm font-medium text-black/60">
+            plus {household.children_under_6} under 6, free — no ticket needed
+          </span>
+        )}
+      </p>
+
+      <p className="mt-4 rounded-xl bg-[var(--cream)] px-4 py-3 text-lg font-black">
+        📷 Ask them to point their phone camera at this
+      </p>
+
+      {/* Data URL from our own server; next/image would only add indirection.
+          Sized as large as the card allows — this gets scanned across a desk,
+          often from a cracked screen at an awkward angle. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={state.dataUrl}
-        alt="Sadhya pass QR code"
-        className="mx-auto w-full max-w-sm rounded-xl border border-black/10"
+        alt={`Sadhya pass QR code for ${household.display_name}`}
+        className="mx-auto mt-3 w-full max-w-md rounded-xl border border-black/10 bg-white"
       />
-      <p className="mt-3 font-bold">Hold this up for the scanner at the door.</p>
-      <p className="mt-2 text-sm break-all text-black/50">{state.url}</p>
+
+      <p className="mt-3 text-[15px] leading-relaxed text-black/70">
+        Their phone will open their pass. Tell them to <strong>screenshot it</strong> — it&apos;s
+        what the volunteer scans at the Sadhya line, and it works for the whole family.
+      </p>
+
+      <details className="mt-4 text-left">
+        <summary className="cursor-pointer text-sm font-semibold text-black/60">
+          Camera not working? Show the link instead
+        </summary>
+        <p className="mt-2 text-sm break-all text-black/60">{state.url}</p>
+      </details>
     </div>
   )
 }
@@ -1102,7 +1143,7 @@ function CreatedPanel({ household, onDone }: { household: Household; onDone: () 
       </div>
 
       {paid ? (
-        <PassPanel householdId={household.id} />
+        <PassPanel household={household} />
       ) : (
         <div className="card text-center font-semibold">
           No pass yet. Find this family in search and mark them paid once payment is in hand.

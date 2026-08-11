@@ -23,17 +23,28 @@ the green success screen on *your* phone counts.
 
 You are at the front desk. Your job is to get people their pass.
 
-### Someone arrives
+### Someone arrives — this is the whole job
 
-1. Open **Desk** and type their name in the big search box.
+1. **Ask their name** and type it in the big search box.
    Partial names work — typing `kavith` finds `Kavitha Raveendra Raja`.
-2. Look at the **payment status**:
-   - **PAID** or **COMPED** → they're good.
+2. **Tap their name.** Their QR code appears straight away.
+3. **Check the payment status** shown above the QR:
+   - **PAID** or **COMPED** → carry on.
    - **UNPAID** → collect payment first (below).
    - **NEEDS REVIEW** → get the admin. Don't guess.
-3. Check the ticket count out loud: *"I have you down for 4 — is that right?"*
-4. Tap **View Pass** and let them photograph the QR off your screen,
-   or tap **Email Pass** if you have their email.
+4. **Say the number out loud:** *"I have you down for 4 — is that right?"*
+5. **"Point your phone camera at this."** Their phone opens their pass.
+6. **Tell them to screenshot it.** That screenshot is what gets scanned at the
+   Sadhya line, and one pass covers the whole family.
+
+That's it. They now carry their own pass and never need you again.
+
+If their phone camera won't cooperate, tap
+**"Camera not working? Show the link instead"** under the QR and let them type
+it in. Slow, but it works.
+
+Two families have bought twice (two separate payments). They'll show up as two
+rows — give them both QRs, or point them at whichever has admissions left.
 
 ### They paid but aren't in the system
 
