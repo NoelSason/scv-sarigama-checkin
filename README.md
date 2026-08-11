@@ -1,36 +1,134 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SCV Sarigama Onam 2026 — Sadhya Check-In
 
-## Getting Started
+Digital replacement for paper Sadhya meal tickets.
+Live at **https://checkin.scvsarigama.com**
 
-First, run the development server:
+One household = one QR pass carrying N admissions. The QR identifies the family
+and nothing else — the balance lives in Postgres and is checked on every scan.
+So a family can screenshot the code, share it with their kids, and use it at
+three different times, and it still cannot be used more times than they paid for.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+For volunteers on event day, read **[EVENT_DAY.md](./EVENT_DAY.md)** instead of this.
+
+---
+
+## How it fits together
+
+```
+Google Sheet (Zelle rows) ──┐
+                            ├─► import ──► Neon Postgres ◄── atomic RPC ──► /staff/scan
+Square Orders API (card) ───┘              (authoritative)
+Square webhook (new sales) ─┘                    │
+                                                 ├──► /p/{token}   guest pass
+                                                 └──► /staff/*     desk + admin
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Next.js 16 (App Router) on Vercel · Neon Postgres · Resend for email.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+**Everything touching data is server-side.** The browser never holds a database
+credential; every read and write goes through a route handler.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Routes
 
-## Learn More
+| Route | Who | What |
+|---|---|---|
+| `/p/{token}` | guest, no login | The pass: QR, name, live balance |
+| `/find-pass` | public | Email/phone lookup that mails the link back |
+| `/staff/scan` | volunteer | Scan → confirm → redeem → optional give-back |
+| `/staff/registration` | volunteer | Search, walk-ins, payment, ticket fixes |
+| `/staff/admin` | volunteer | Stats, review queue, reversals, CSV, emergency lookup |
+| `/staff/admin/roster` | volunteer | Printable paper contingency roster |
 
-To learn more about Next.js, take a look at the following resources:
+---
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## The three things that must not break
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+**1. Redemption is atomic.** `redeem_tickets()` puts every precondition in the
+`WHERE` clause of a single `UPDATE`, so Postgres row locking serializes
+concurrent scans. Twenty simultaneous attempts to take the last 3 tickets
+produce exactly one success — this is asserted in the test suite and was
+re-verified against production. `CHECK (tickets_redeemed <= tickets_purchased)`
+backs it up independently, so even a direct `UPDATE` cannot over-redeem.
 
-## Deploy on Vercel
+**2. Ticket counts are never inferred.**
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+| Source | Authority | Explicitly NOT used |
+|---|---|---|
+| Square | `line_item.quantity`, matched by **catalog variation ID** | the dollar amount; the variation's display name |
+| Sheet | the `No Of People` column | `Amount Paid` |
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The Square display name lies: a real Aug 9 order reads `(Ages 6+ [$25.00]) × 2`
+and was charged $30, because the price rose mid-sale and the label went stale.
+The sheet lies differently: rows like `Malabar Gold / $500 / 2` bundle a
+donation with the tickets. Anything that can't be mapped confidently becomes a
+`needs_review` row rather than a guess.
+
+**3. Under-6 children never consume an admission.** They're recorded in
+`children_under_6` for headcount honesty and shown at the desk, but they walk in
+free with no ticket.
+
+---
+
+## Local setup
+
+```bash
+npm install
+vercel env pull .env.local     # or copy .env.example and fill it in
+npm run migrate
+npm run seed                   # four demo households
+npm run dev
+```
+
+`npm run create-staff -- --email you@example.com --name "You" --role admin`
+creates an individual login. Day-to-day, volunteers use the shared password in
+`STAFF_PASSWORD` instead.
+
+### Commands
+
+| Command | Does |
+|---|---|
+| `npm run migrate` | Apply `db/migrations/*.sql` (idempotent) |
+| `npm run seed` | Create demo households · `-- --purge` to remove |
+| `npm test` | Full suite, including the concurrency tests |
+| `npm run create-staff` | Create/reset an individual staff login |
+| `npx tsx scripts/import-sheet.ts --csv <file>` | Sheet dry run |
+| `npx tsx scripts/import-square.ts` | Square dry run |
+| `npx tsx scripts/square-catalog.ts` | List catalog variation IDs |
+
+Imports are **dry-run by default** and write a preview CSV to `out-import/`.
+`--commit` writes, in one transaction tagged with an `import_batches` row.
+
+---
+
+## Notes for whoever picks this up next
+
+**Tests hit the real database.** They only create and delete rows with
+`source = 'vitest'`, so they can't touch real guests or the seeded demos. That
+scoping is deliberate — an earlier version keyed cleanup off `is_test` and
+quietly deleted the demo households on every run.
+
+**`ws` must stay a lazy import in `src/lib/db.ts`.** Importing it at module
+scope crashes every database-backed function on Vercel at boot: empty 500, no
+log, while the identical build serves fine locally. Only the transaction path
+needs a WebSocket; the query path is SQL over HTTPS.
+
+**Email cannot reach a real guest while `EMAIL_TEST_REDIRECT` is set.** The
+redirect is applied inside the provider factory, not at call sites, so it can't
+be bypassed by accident. Clearing it is a deliberate, one-time act.
+
+**Google Sheets is an import source, not the ledger.** Nothing during the event
+depends on it being reachable. If the sheet and the app disagree on event day,
+the app wins.
+
+**No offline redemption, ever.** Two phones offline at the same entrance would
+both believe they had the last ticket. The scanner tells the volunteer to stop
+instead. `/staff/admin/roster` is the paper fallback — print it beforehand.
+
+---
+
+## Environment
+
+See `.env.example`. `DATABASE_URL` comes from the Neon integration; the rest are
+set with `vercel env add`. Nothing secret is committed.
+
+`out-import/` is gitignored because preview CSVs contain guest contact details.
