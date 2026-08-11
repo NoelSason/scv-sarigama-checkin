@@ -202,6 +202,23 @@ export async function reverseRedemption(
   return row!.result
 }
 
+/**
+ * Restore N admissions to a household without needing to know which scan they
+ * came from. Used by the scanner when a family was over-counted earlier.
+ */
+export async function giveBackTickets(
+  householdId: string,
+  quantity: number,
+  reason: string,
+  staffId: string | null,
+): Promise<RedeemResult & { restored?: number }> {
+  const row = await queryOne<{ result: RedeemResult & { restored?: number } }>(
+    'select give_back_tickets($1::uuid, $2::int, $3::text, $4::uuid) as result',
+    [householdId, quantity, reason, staffId],
+  )
+  return row!.result
+}
+
 export async function adjustTicketCount(
   householdId: string,
   newTotal: number,

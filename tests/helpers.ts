@@ -84,6 +84,18 @@ export async function reverse(
   return row!.reverse_redemption
 }
 
+export async function giveBack(
+  householdId: string,
+  quantity: number,
+  reason: string,
+): Promise<Record<string, unknown>> {
+  const row = await queryOne<{ give_back_tickets: Record<string, unknown> }>(
+    'select give_back_tickets($1::uuid, $2::int, $3::text, null) as give_back_tickets',
+    [householdId, quantity, reason],
+  )
+  return row!.give_back_tickets
+}
+
 export async function adjustCount(
   householdId: string,
   newTotal: number,

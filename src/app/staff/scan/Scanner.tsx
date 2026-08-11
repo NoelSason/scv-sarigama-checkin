@@ -75,13 +75,22 @@ export function Scanner({ staffName }: { staffName: string }) {
     }
   }, [phase])
 
+  /** Give back admissions used earlier — the family is known, the scan isn't. */
+  async function giveBackForHousehold(household: Household, quantity: number) {
+    await postGiveBack({ householdId: household.id, quantity }, household.display_name)
+  }
+
   async function giveBack(redemptionId: string, quantity: number, name: string) {
+    await postGiveBack({ redemptionId, quantity }, name)
+  }
+
+  async function postGiveBack(body: Record<string, unknown>, name: string) {
     if (timerRef.current) clearTimeout(timerRef.current)
     try {
       const res = await fetch('/api/staff/reverse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ redemptionId, quantity }),
+        body: JSON.stringify(body),
       })
       const data = await res.json()
       if (data.success) {
@@ -197,6 +206,7 @@ export function Scanner({ staffName }: { staffName: string }) {
           household={phase.household}
           onCancel={() => setPhase({ kind: 'scanning' })}
           onChoose={(q) => redeem(phase.household, q)}
+          onGiveBack={(q) => giveBackForHousehold(phase.household, q)}
         />
       )}
 
@@ -353,14 +363,17 @@ function GiveBack({ max, onGiveBack }: { max: number; onGiveBack: (n: number) =>
 function RedeemPanel({
   household,
   onChoose,
+  onGiveBack,
   onCancel,
 }: {
   household: Household
   onChoose: (quantity: number) => void
+  onGiveBack: (quantity: number) => void
   onCancel: () => void
 }) {
   const [custom, setCustom] = useState('')
   const remaining = household.tickets_remaining
+  const used = household.tickets_redeemed
   const usable =
     household.pass_enabled &&
     (household.payment_status === 'paid' || household.payment_status === 'comped')
@@ -380,7 +393,20 @@ function RedeemPanel({
             ? `All ${household.tickets_purchased} admissions have already been used.`
             : 'Send them to the registration desk.'}
         </p>
-        <button type="button" onClick={onCancel} className="btn-neutral mt-5 w-full">
+
+        {/* A fully-used pass is exactly when an over-count shows up — someone
+            arrives, finds nothing left, and says they only ate twice. Fixing it
+            here beats sending them to find an admin. */}
+        {used > 0 && (
+          <GiveBackSection
+            max={used}
+            tone="light"
+            label="Counted wrong earlier? Give tickets back"
+            onGiveBack={onGiveBack}
+          />
+        )}
+
+        <button type="button" onClick={onCancel} className="btn-neutral mt-4 w-full">
           Back to scanner
         </button>
       </div>
@@ -442,7 +468,108 @@ function RedeemPanel({
         </div>
       )}
 
+      {/* Only offered once something has actually been used, so the normal
+          scan-and-go path stays a single row of numbers. */}
+      {used > 0 && (
+        <GiveBackSection
+          max={used}
+          tone="dark"
+          label={`Counted wrong earlier? Give back (${used} used)`}
+          onGiveBack={onGiveBack}
+        />
+      )}
+
       <button type="button" onClick={onCancel} className="btn-neutral mt-4 w-full">
+        Cancel
+      </button>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+
+/**
+ * Collapsed give-back control.
+ *
+ * Kept behind a tap on purpose: putting "give back" buttons next to "how many
+ * are entering" would put two opposite actions a thumb's width apart, and the
+ * wrong one hands out free meals.
+ */
+function GiveBackSection({
+  max,
+  label,
+  tone,
+  onGiveBack,
+}: {
+  max: number
+  label: string
+  tone: 'light' | 'dark'
+  onGiveBack: (quantity: number) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [confirm, setConfirm] = useState<number | null>(null)
+
+  const linkClass =
+    tone === 'dark'
+      ? 'text-[var(--gold-deep)]'
+      : 'text-[var(--danger)]'
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className={`mt-4 w-full py-3 text-sm font-bold underline ${linkClass}`}
+      >
+        ↩ {label}
+      </button>
+    )
+  }
+
+  if (confirm !== null) {
+    return (
+      <div className="mt-4 rounded-xl border-2 border-[var(--gold)] bg-[var(--cream)] p-4 text-center">
+        <p className="text-lg font-black">
+          Give back {confirm} admission{confirm === 1 ? '' : 's'}?
+        </p>
+        <p className="mt-1 text-sm text-black/70">
+          They&apos;ll be able to eat {confirm} more time{confirm === 1 ? '' : 's'}.
+        </p>
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <button type="button" onClick={() => onGiveBack(confirm)} className="btn-gold">
+            Yes, give back
+          </button>
+          <button type="button" onClick={() => setConfirm(null)} className="btn-neutral">
+            No
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  const quick = Array.from({ length: Math.min(max, 6) }, (_, i) => i + 1)
+
+  return (
+    <div className="mt-4 rounded-xl border-2 border-[var(--gold)] bg-[var(--cream)] p-4">
+      <p className="text-center font-black">How many to give back?</p>
+      <p className="mt-1 text-center text-sm text-black/60">{max} used so far</p>
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        {quick.map((n) => (
+          <button
+            key={n}
+            type="button"
+            onClick={() => setConfirm(n)}
+            className="btn border-2 border-[var(--gold)] bg-white py-5 text-2xl"
+          >
+            {n}
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        onClick={() => setOpen(false)}
+        className="mt-3 w-full py-2 text-sm font-semibold underline"
+      >
         Cancel
       </button>
     </div>

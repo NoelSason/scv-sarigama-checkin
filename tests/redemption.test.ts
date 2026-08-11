@@ -4,6 +4,7 @@ import {
   adjustCount,
   auditFor,
   getHousehold,
+  giveBack,
   makeHousehold,
   purgeTestData,
   redeem,
@@ -259,5 +260,75 @@ describe('database constraints are a real backstop, not decoration', () => {
     // Only the 2 paid admissions can be redeemed; the 3 children add nothing.
     expect((await redeem(h.id, 3)).error).toBe('INSUFFICIENT_TICKETS')
     expect((await redeem(h.id, 2)).success).toBe(true)
+  })
+})
+
+describe('give_back_tickets — restoring admissions used earlier', () => {
+  it('unwinds across several scans, newest first, and never deletes them', async () => {
+    const h = await makeHousehold({ purchased: 6 })
+    await redeem(h.id, 2)
+    await redeem(h.id, 3)
+    expect((await getHousehold(h.id))!.tickets_remaining).toBe(1)
+
+    // Give back 4: takes all 3 from the newest scan and 1 from the older one.
+    const res = await giveBack(h.id, 4, 'over-counted earlier')
+    expect(res.success).toBe(true)
+    expect(res.tickets_remaining).toBe(5)
+    expect(res.tickets_redeemed).toBe(1)
+
+    const rows = await query<{ quantity: number }>(
+      'select quantity from redemptions where household_id = $1 order by created_at',
+      [h.id],
+    )
+    expect(rows.map((r) => r.quantity)).toEqual([2, 3])
+
+    const adj = await query<{ quantity_delta: number }>(
+      'select quantity_delta from redemption_adjustments where household_id = $1',
+      [h.id],
+    )
+    expect(adj.reduce((n, a) => n + a.quantity_delta, 0)).toBe(4)
+  })
+
+  it('works on a fully-used pass — the case a volunteer actually hits', async () => {
+    const h = await makeHousehold({ purchased: 3 })
+    await redeem(h.id, 3)
+    expect((await getHousehold(h.id))!.tickets_remaining).toBe(0)
+
+    const res = await giveBack(h.id, 1, 'only two of them ate')
+    expect(res.success).toBe(true)
+    expect(res.tickets_remaining).toBe(1)
+
+    // And the restored admission is genuinely usable again.
+    expect((await redeem(h.id, 1)).success).toBe(true)
+  })
+
+  it('refuses to give back more than was used', async () => {
+    const h = await makeHousehold({ purchased: 5 })
+    await redeem(h.id, 2)
+    const res = await giveBack(h.id, 3, 'too many')
+    expect(res.success).toBe(false)
+    expect(res.error).toBe('INSUFFICIENT_REDEEMED')
+    expect((await getHousehold(h.id))!.tickets_redeemed).toBe(2)
+  })
+
+  it('requires a reason and a positive quantity', async () => {
+    const h = await makeHousehold({ purchased: 3 })
+    await redeem(h.id, 1)
+    expect((await giveBack(h.id, 1, '  ')).error).toBe('REASON_REQUIRED')
+    expect((await giveBack(h.id, 0, 'x')).error).toBe('INVALID_QUANTITY')
+  })
+
+  it('concurrent give-backs cannot restore more than was used', async () => {
+    const h = await makeHousehold({ purchased: 5 })
+    await redeem(h.id, 4)
+
+    const results = await Promise.all(
+      Array.from({ length: 6 }, () => giveBack(h.id, 4, 'race')),
+    )
+    expect(results.filter((r) => r.success).length).toBe(1)
+
+    const after = await getHousehold(h.id)
+    expect(after!.tickets_redeemed).toBe(0)
+    expect(after!.tickets_remaining).toBe(5)
   })
 })

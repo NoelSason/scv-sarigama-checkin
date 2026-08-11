@@ -2,15 +2,29 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requireStaffApi } from '@/lib/auth'
 import { queryOne } from '@/lib/db'
-import { reverseRedemption } from '@/lib/households'
+import { giveBackTickets, reverseRedemption } from '@/lib/households'
 
 export const dynamic = 'force-dynamic'
 
-const Body = z.object({
-  redemptionId: z.string().uuid(),
-  quantity: z.number().int().positive().max(50),
-  reason: z.string().trim().min(1).max(200).optional(),
-})
+/**
+ * Two shapes:
+ *   { redemptionId } — undo the scan just made (success screen)
+ *   { householdId }  — give back N admissions used earlier today, when the
+ *                      volunteer knows the family and the number but not which
+ *                      scan was wrong
+ */
+const Body = z.union([
+  z.object({
+    redemptionId: z.string().uuid(),
+    quantity: z.number().int().positive().max(50),
+    reason: z.string().trim().min(1).max(200).optional(),
+  }),
+  z.object({
+    householdId: z.string().uuid(),
+    quantity: z.number().int().positive().max(50),
+    reason: z.string().trim().min(1).max(200).optional(),
+  }),
+])
 
 /** How long after a scan a volunteer may undo it themselves. */
 const UNDO_WINDOW_MINUTES = 30
@@ -38,6 +52,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: 'INVALID_QUANTITY' }, { status: 400 })
   }
 
+  const reason = body.reason?.trim() || 'Given back at the Sadhya entrance'
+
+  // Whole-household give-back: the volunteer knows the family and how many to
+  // restore, not which scan was wrong. The database walks the redemptions.
+  if ('householdId' in body) {
+    const result = await giveBackTickets(body.householdId, body.quantity, reason, staff.id)
+    return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } })
+  }
+
+  // Undoing the scan just made stays time-boxed: after half an hour nobody at
+  // the food line remembers what actually happened, so it becomes an admin call.
   const recent = await queryOne<{ id: string }>(
     `select id from redemptions
       where id = $1
@@ -48,16 +73,10 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: false,
       error: 'TOO_OLD',
-      detail: `Only scans from the last ${UNDO_WINDOW_MINUTES} minutes can be undone here. Ask an admin.`,
+      detail: `Only scans from the last ${UNDO_WINDOW_MINUTES} minutes can be undone this way.`,
     })
   }
 
-  const result = await reverseRedemption(
-    body.redemptionId,
-    body.quantity,
-    body.reason?.trim() || 'Given back at the Sadhya entrance',
-    staff.id,
-  )
-
+  const result = await reverseRedemption(body.redemptionId, body.quantity, reason, staff.id)
   return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } })
 }
