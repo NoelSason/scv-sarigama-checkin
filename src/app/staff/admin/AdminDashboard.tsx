@@ -238,17 +238,6 @@ export function AdminDashboard({ initial }: { initial: AdminStats }) {
         </div>
       </section>
 
-      {selected && (
-        <div className="fixed inset-x-0 bottom-0 z-30 max-h-[85dvh] overflow-y-auto border-t-4 border-[var(--green)] bg-[var(--background)] px-4 pb-6 shadow-2xl">
-          <div className="mx-auto max-w-3xl">
-            <HouseholdPanel
-              householdId={selected}
-              onClose={() => setSelected(null)}
-              onChanged={() => refresh.current()}
-            />
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -360,14 +349,9 @@ function EmergencyLookup({
         </p>
       )}
 
-      {selected && results.some((h) => h.id === selected) && (
-        <HouseholdPanel
-          key={selected}
-          householdId={selected}
-          onClose={() => onSelect(null)}
-          onChanged={onChanged}
-        />
-      )}
+      {/* The detail panel is rendered once, by the parent, directly beneath
+          this section. Rendering it here as well drew the same household
+          twice on one screen. */}
     </section>
   )
 }

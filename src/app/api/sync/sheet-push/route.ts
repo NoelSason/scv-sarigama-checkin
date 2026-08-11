@@ -69,7 +69,12 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json(
-      { ok: true, counts: summary.counts, stats: summary.stats },
+      {
+        ok: true,
+        counts: summary.counts,
+        admissions: summary.admissions,
+        reviewsOpened: summary.reviewsOpened,
+      },
       { headers: { 'Cache-Control': 'no-store' } },
     )
   } catch (err) {
