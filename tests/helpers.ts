@@ -16,6 +16,13 @@ export type Household = {
 let seq = 0
 
 /**
+ * Rows created by the test suite carry this source so cleanup can target them
+ * exactly. `is_test` alone is not specific enough: seeded demo households are
+ * also flagged is_test, and a test run must never delete those.
+ */
+const TEST_SOURCE = 'vitest'
+
+/**
  * Create a throwaway household. Always is_test = true so a stray row can
  * never be confused with a real guest, and purgeTestData() can clear it.
  */
@@ -32,7 +39,7 @@ export async function makeHousehold(opts: {
     `insert into households
        (display_name, tickets_purchased, tickets_redeemed, children_under_6,
         payment_status, pass_enabled, pass_token, is_test, source)
-     values ($1, $2, $3, $4, $5::payment_status, $6, $7, true, 'seed')
+     values ($1, $2, $3, $4, $5::payment_status, $6, $7, true, $8)
      returning *`,
     [
       name,
@@ -42,6 +49,7 @@ export async function makeHousehold(opts: {
       opts.status ?? 'paid',
       opts.enabled ?? true,
       generatePassToken(),
+      TEST_SOURCE,
     ],
   )
   if (!row) throw new Error('failed to create test household')
@@ -95,22 +103,23 @@ export async function auditFor(householdId: string) {
   )
 }
 
-/** Remove every row created by tests. Never touches real households. */
+/**
+ * Remove rows this suite created — and only those.
+ *
+ * Scoped to source = 'vitest' rather than to is_test, so running the tests can
+ * never wipe seeded demo households (which are also is_test) or, obviously,
+ * anything real.
+ */
 export async function purgeTestData(): Promise<void> {
-  await query(
-    `delete from audit_logs where household_id in (select id from households where is_test)`,
-  )
-  await query(
-    `delete from redemption_adjustments where household_id in (select id from households where is_test)`,
-  )
-  await query(
-    `delete from redemptions where household_id in (select id from households where is_test)`,
-  )
-  await query(
-    `delete from email_deliveries where household_id in (select id from households where is_test)`,
-  )
-  await query(
-    `delete from review_items where household_id in (select id from households where is_test)`,
-  )
-  await query('delete from households where is_test')
+  const scope = `select id from households where source = '${TEST_SOURCE}'`
+  for (const table of [
+    'audit_logs',
+    'redemption_adjustments',
+    'redemptions',
+    'email_deliveries',
+    'review_items',
+  ]) {
+    await query(`delete from ${table} where household_id in (${scope})`)
+  }
+  await query(`delete from households where source = $1`, [TEST_SOURCE])
 }
