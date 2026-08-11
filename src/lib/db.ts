@@ -1,13 +1,32 @@
-import { Pool, type PoolClient, type QueryResultRow } from 'pg'
+import { neon, neonConfig, Pool, type PoolClient } from '@neondatabase/serverless'
+import ws from 'ws'
 
 /**
- * Single pooled connection to Neon.
+ * Database access via Neon's driver.
  *
- * Lazy: constructing the Pool at module scope would throw during `next build`
- * before env vars exist. `globalThis` caching keeps one pool across hot
- * reloads in dev and across warm invocations on Vercel Fluid Compute.
+ * Two transports, chosen deliberately:
+ *
+ *   query()       — SQL over HTTPS. No connection setup, so a scanner lookup
+ *                   or a redemption is one round trip. This is what the event
+ *                   runs on, and why the <500ms target is comfortable.
+ *
+ *   transaction() — Postgres protocol over a WebSocket. Only needed where
+ *                   several statements must land together (the import batch).
+ *
+ * redeem_tickets() is a single statement, so it is atomic over HTTP without a
+ * transaction. Wrapping it would add a round trip and buy nothing.
+ *
+ * Plain TCP on 5432 is also supported by Neon but is unreliable on some
+ * networks (it fails on this developer machine), so we don't use it anywhere.
  */
-const globalForDb = globalThis as unknown as { __onamPool?: Pool }
+
+// Node needs an explicit WebSocket implementation; browsers/edge have one.
+neonConfig.webSocketConstructor = ws
+
+const globalForDb = globalThis as unknown as {
+  __onamSql?: ReturnType<typeof neon>
+  __onamPool?: Pool
+}
 
 function connectionString(): string {
   const url = process.env.DATABASE_URL
@@ -15,29 +34,33 @@ function connectionString(): string {
   return url
 }
 
+function sqlClient() {
+  // Lazy: building this at module scope would crash `next build` before env
+  // vars exist.
+  if (!globalForDb.__onamSql) {
+    globalForDb.__onamSql = neon(connectionString())
+  }
+  return globalForDb.__onamSql
+}
+
 export function pool(): Pool {
   if (!globalForDb.__onamPool) {
-    globalForDb.__onamPool = new Pool({
-      connectionString: connectionString(),
-      // Neon terminates idle connections; keep the pool small and short-lived
-      // so a serverless instance never holds more than it needs.
-      max: 8,
-      idleTimeoutMillis: 10_000,
-      connectionTimeoutMillis: 10_000,
-    })
+    globalForDb.__onamPool = new Pool({ connectionString: connectionString() })
   }
   return globalForDb.__onamPool
 }
 
-export async function query<T extends QueryResultRow = QueryResultRow>(
+/** Run one parameterised statement and return all rows. */
+export async function query<T = Record<string, unknown>>(
   text: string,
   params: unknown[] = [],
 ): Promise<T[]> {
-  const res = await pool().query<T>(text, params)
-  return res.rows
+  const rows = await sqlClient().query(text, params)
+  return rows as T[]
 }
 
-export async function queryOne<T extends QueryResultRow = QueryResultRow>(
+/** Run one parameterised statement and return the first row, or null. */
+export async function queryOne<T = Record<string, unknown>>(
   text: string,
   params: unknown[] = [],
 ): Promise<T | null> {
@@ -46,11 +69,8 @@ export async function queryOne<T extends QueryResultRow = QueryResultRow>(
 }
 
 /**
- * Run a set of statements in one transaction. Used by the import path so a
+ * Run several statements in one transaction. Used by the import path so a
  * whole batch either lands or doesn't.
- *
- * Note: redemption does NOT use this. `redeem_tickets()` is atomic on its own
- * as a single statement — wrapping it would add nothing but latency.
  */
 export async function transaction<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
   const client = await pool().connect()

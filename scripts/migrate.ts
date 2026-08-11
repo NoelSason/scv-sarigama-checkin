@@ -10,7 +10,10 @@
  */
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { Client } from 'pg'
+import { Client, neonConfig } from '@neondatabase/serverless'
+import ws from 'ws'
+
+neonConfig.webSocketConstructor = ws
 
 const MIGRATIONS_DIR = join(process.cwd(), 'db', 'migrations')
 
