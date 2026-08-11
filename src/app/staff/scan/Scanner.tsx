@@ -11,7 +11,14 @@ type Phase =
   | { kind: 'looking-up' }
   | { kind: 'found'; household: Household }
   | { kind: 'redeeming'; household: Household; quantity: number }
-  | { kind: 'success'; name: string; redeemed: number; remaining: number }
+  | {
+      kind: 'success'
+      name: string
+      redeemed: number
+      remaining: number
+      redemptionId?: string
+    }
+  | { kind: 'returned'; name: string; restored: number; remaining: number }
   | { kind: 'failure'; title: string; detail?: string }
 
 const SUCCESS_MS = 2600
@@ -54,17 +61,54 @@ export function Scanner({ staffName }: { staffName: string }) {
 
   const { videoRef, state, message, start, stop } = useQrScanner({ onScan: lookup, paused })
 
-  // Auto-dismiss result screens back to scanning.
+  // Auto-dismiss result screens back to scanning. The success screen waits
+  // longer than it needs to read, because that pause is the only window the
+  // volunteer has to notice a wrong number and tap Give back.
   useEffect(() => {
-    if (phase.kind !== 'success' && phase.kind !== 'failure') return
+    if (phase.kind !== 'success' && phase.kind !== 'failure' && phase.kind !== 'returned') return
     timerRef.current = setTimeout(
       () => setPhase({ kind: 'scanning' }),
-      phase.kind === 'success' ? SUCCESS_MS : FAILURE_MS,
+      phase.kind === 'failure' ? FAILURE_MS : SUCCESS_MS,
     )
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current)
     }
   }, [phase])
+
+  async function giveBack(redemptionId: string, quantity: number, name: string) {
+    if (timerRef.current) clearTimeout(timerRef.current)
+    try {
+      const res = await fetch('/api/staff/reverse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ redemptionId, quantity }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        buzz([40, 60, 40])
+        setPhase({
+          kind: 'returned',
+          name: data.display_name ?? name,
+          restored: data.restored,
+          remaining: data.tickets_remaining,
+        })
+        return
+      }
+      setPhase({
+        kind: 'failure',
+        title: 'COULD NOT GIVE BACK',
+        detail:
+          (data.detail as string) ??
+          'The admissions were NOT returned. Send them to registration.',
+      })
+    } catch {
+      setPhase({
+        kind: 'failure',
+        title: 'CONNECTION PROBLEM',
+        detail: 'The admissions were NOT returned. Check signal and try again.',
+      })
+    }
+  }
 
   async function redeem(household: Household, quantity: number) {
     setPhase({ kind: 'redeeming', household, quantity })
@@ -83,6 +127,7 @@ export function Scanner({ staffName }: { staffName: string }) {
           name: data.display_name ?? household.display_name,
           redeemed: data.redeemed_now,
           remaining: data.tickets_remaining,
+          redemptionId: data.redemption_id,
         })
         return
       }
@@ -175,6 +220,32 @@ export function Scanner({ staffName }: { staffName: string }) {
           <p className="mt-4 text-2xl font-black tabular-nums">
             {phase.remaining} REMAINING
           </p>
+
+          <button
+            type="button"
+            onClick={() => setPhase({ kind: 'scanning' })}
+            className="btn mt-5 w-full bg-white/20 text-white"
+          >
+            Scan next
+          </button>
+
+          {/* Tapped the wrong number? Fix it here rather than sending the
+              family to registration with a queue behind them. */}
+          {phase.redemptionId && (
+            <GiveBack
+              max={phase.redeemed}
+              onGiveBack={(n) => giveBack(phase.redemptionId!, n, phase.name)}
+            />
+          )}
+        </div>
+      )}
+
+      {phase.kind === 'returned' && (
+        <div className="rounded-2xl bg-[var(--gold-deep)] p-7 text-center text-white">
+          <p className="text-5xl font-black">↩</p>
+          <p className="mt-2 text-3xl font-black">{phase.restored} GIVEN BACK</p>
+          <p className="mt-1 text-lg font-semibold">{phase.name}</p>
+          <p className="mt-4 text-2xl font-black tabular-nums">{phase.remaining} REMAINING</p>
           <button
             type="button"
             onClick={() => setPhase({ kind: 'scanning' })}
@@ -223,6 +294,56 @@ export function Scanner({ staffName }: { staffName: string }) {
           </p>
         </div>
       )}
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+
+/**
+ * Undo control on the success screen.
+ *
+ * Collapsed by default: the overwhelmingly common case is that the number was
+ * right, and an always-open row of buttons next to "2 ADMITTED" invites a
+ * mis-tap that would put tickets back by accident.
+ */
+function GiveBack({ max, onGiveBack }: { max: number; onGiveBack: (n: number) => void }) {
+  const [open, setOpen] = useState(false)
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="mt-3 w-full py-3 text-sm font-semibold text-white/80 underline"
+      >
+        ↩ Wrong number? Give tickets back
+      </button>
+    )
+  }
+
+  return (
+    <div className="mt-4 rounded-xl bg-white/15 p-4">
+      <p className="font-bold">How many to give back?</p>
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        {Array.from({ length: max }, (_, i) => i + 1).map((n) => (
+          <button
+            key={n}
+            type="button"
+            onClick={() => onGiveBack(n)}
+            className="btn bg-white py-5 text-2xl text-[var(--foreground)]"
+          >
+            {n}
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        onClick={() => setOpen(false)}
+        className="mt-3 w-full py-2 text-sm font-semibold text-white/80 underline"
+      >
+        Cancel
+      </button>
     </div>
   )
 }

@@ -1,4 +1,3 @@
-import 'server-only'
 import { query, queryOne } from './db'
 import { generatePassToken, normalizeEmail, normalizeName, normalizePhone } from './tokens'
 

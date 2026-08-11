@@ -1,4 +1,3 @@
-import 'server-only'
 import { query, queryOne } from '@/lib/db'
 import { findById, logAudit, passUrl, type Household } from '@/lib/households'
 import type { EmailProvider } from './provider'

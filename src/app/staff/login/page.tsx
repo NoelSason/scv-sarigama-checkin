@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { currentStaff, signIn } from '@/lib/auth'
+import { currentStaff, signInShared } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,9 +13,8 @@ export default async function LoginPage({
 
   async function action(formData: FormData) {
     'use server'
-    const email = String(formData.get('email') ?? '')
     const password = String(formData.get('password') ?? '')
-    const result = await signIn(email, password)
+    const result = await signInShared(password)
     if (!result.ok) redirect(`/staff/login?error=${encodeURIComponent(result.error)}`)
     redirect('/staff')
   }
@@ -27,25 +26,10 @@ export default async function LoginPage({
           SCV Sarigama
         </p>
         <h1 className="mt-1 text-3xl font-black text-[var(--green-deep)]">Onam Check-In</h1>
-        <p className="mt-2 text-sm text-black/60">Volunteer sign-in</p>
+        <p className="mt-2 text-black/60">Enter the volunteer password</p>
       </header>
 
       <form action={action} className="mt-8 space-y-4">
-        <div>
-          <label htmlFor="email" className="mb-1 block font-semibold">
-            Email
-          </label>
-          <input
-            id="email"
-            name="email"
-            type="email"
-            autoComplete="username"
-            autoCapitalize="none"
-            required
-            className="field"
-          />
-        </div>
-
         <div>
           <label htmlFor="password" className="mb-1 block font-semibold">
             Password
@@ -55,8 +39,9 @@ export default async function LoginPage({
             name="password"
             type="password"
             autoComplete="current-password"
+            autoFocus
             required
-            className="field"
+            className="field text-xl"
           />
         </div>
 
@@ -69,13 +54,13 @@ export default async function LoginPage({
           </p>
         )}
 
-        <button type="submit" className="btn-primary w-full">
+        <button type="submit" className="btn-primary w-full py-6 text-xl">
           Sign in
         </button>
       </form>
 
       <p className="mt-8 text-center text-sm text-black/50">
-        Trouble signing in? Find the event admin.
+        You&apos;ll stay signed in on this phone. Ask the event admin for the password.
       </p>
     </main>
   )

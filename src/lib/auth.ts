@@ -1,4 +1,5 @@
 import 'server-only'
+import { timingSafeEqual } from 'node:crypto'
 import { cookies, headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { query, queryOne } from './db'
@@ -6,6 +7,9 @@ import { generateSessionToken, sha256, verifyPassword } from './tokens'
 
 export const SESSION_COOKIE = 'onam_staff'
 const SESSION_DAYS = 14
+
+/** The single identity every shared-password session runs as. */
+const SHARED_STAFF_EMAIL = 'volunteer@scvsarigama.local'
 
 export type StaffRole = 'admin' | 'registration' | 'scanner'
 
@@ -31,6 +35,70 @@ export async function createSession(staffId: string, userAgent?: string): Promis
     [sha256(token), staffId, userAgent ?? null, expires],
   )
   return token
+}
+
+/**
+ * Shared-password sign-in.
+ *
+ * Volunteers do not get individual accounts: on event day, handing out and
+ * resetting a dozen logins costs more than it buys. One password, typed once,
+ * and the phone stays signed in for two weeks.
+ *
+ * The trade-off is deliberate and worth knowing: the audit trail attributes
+ * every action to "Volunteer" rather than to a person, and anyone who learns
+ * the password can redeem. Set STAFF_PASSWORD to something less guessable than
+ * the default if that matters to you.
+ */
+export async function signInShared(
+  password: string,
+): Promise<{ ok: true; staff: Staff } | { ok: false; error: string }> {
+  const expected = process.env.STAFF_PASSWORD || 'admin123'
+
+  // Constant-time compare so the form can't be used to probe the password
+  // character by character.
+  const a = Buffer.from(password.trim())
+  const b = Buffer.from(expected)
+  const matches = a.length === b.length && timingSafeEqual(a, b)
+
+  if (!matches) return { ok: false, error: 'Incorrect password.' }
+
+  // One shared identity backs every session, so existing role checks, audit
+  // rows, and foreign keys all keep working unchanged.
+  let staff = await queryOne<Staff>(
+    `select id, email, name, role, active from staff_users where email = $1`,
+    [SHARED_STAFF_EMAIL],
+  )
+
+  if (!staff) {
+    staff = await queryOne<Staff>(
+      `insert into staff_users (email, name, role, password_hash)
+       values ($1, 'Volunteer', 'admin', 'shared-password-login')
+       on conflict (email) do update set active = true
+       returning id, email, name, role, active`,
+      [SHARED_STAFF_EMAIL],
+    )
+  }
+  if (!staff) return { ok: false, error: 'Could not start a session. Try again.' }
+
+  const hdrs = await headers()
+  const token = await createSession(staff.id, hdrs.get('user-agent') ?? undefined)
+
+  const jar = await cookies()
+  jar.set(SESSION_COOKIE, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: SESSION_DAYS * 86_400,
+  })
+
+  await query(
+    `insert into audit_logs (actor_type, actor_id, action, metadata)
+     values ('staff', $1, 'staff_signed_in', '{"via":"shared password"}'::jsonb)`,
+    [staff.id],
+  )
+
+  return { ok: true, staff }
 }
 
 export async function signIn(

@@ -1,4 +1,3 @@
-import 'server-only'
 import { query, queryOne } from './db'
 import { createHousehold, type PaymentStatus } from './households'
 import { normalizeName } from './tokens'
