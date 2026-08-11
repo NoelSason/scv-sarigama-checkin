@@ -5,6 +5,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 type ScannerState = 'idle' | 'starting' | 'running' | 'denied' | 'unsupported' | 'error'
 
 /**
+ * Which decoder is live. The UI must know: the two backends draw completely
+ * different things. The native path paints into our own <video>, while
+ * html5-qrcode injects its own <video> plus a scan-region graphic. Rendering
+ * both at once put two boxes on screen with a dead black band above them.
+ */
+export type ScannerBackend = 'native' | 'fallback' | null
+
+/**
  * QR scanning with two backends.
  *
  * Primary: the native BarcodeDetector, hardware-accelerated and by far the
@@ -31,6 +39,7 @@ export function useQrScanner({
   const lastRef = useRef<{ value: string; at: number } | null>(null)
 
   const [state, setState] = useState<ScannerState>('idle')
+  const [backend, setBackend] = useState<ScannerBackend>(null)
   const [message, setMessage] = useState<string | null>(null)
 
   useEffect(() => {
@@ -65,6 +74,7 @@ export function useQrScanner({
     }
     streamRef.current?.getTracks().forEach((t) => t.stop())
     streamRef.current = null
+    setBackend(null)
     setState('idle')
   }, [])
 
@@ -92,6 +102,7 @@ export function useQrScanner({
         video.srcObject = stream
         video.setAttribute('playsinline', 'true')
         await video.play()
+        setBackend('native')
         setState('running')
 
         const tick = async () => {
@@ -116,10 +127,14 @@ export function useQrScanner({
         // Native path failed for another reason: fall through to the library.
         streamRef.current?.getTracks().forEach((t) => t.stop())
         streamRef.current = null
+        setBackend(null)
       }
     }
 
     try {
+      // Set before awaiting: the container div must already be mounted and
+      // visible when html5-qrcode measures it, or it renders at zero height.
+      setBackend('fallback')
       const { Html5Qrcode } = await import('html5-qrcode')
       const instance = new Html5Qrcode('qr-fallback-region', { verbose: false })
       fallbackRef.current = instance
@@ -133,6 +148,7 @@ export function useQrScanner({
       )
       setState('running')
     } catch (err) {
+      setBackend(null)
       if (err instanceof DOMException && err.name === 'NotAllowedError') {
         setState('denied')
       } else {
@@ -148,5 +164,5 @@ export function useQrScanner({
     }
   }, [stop])
 
-  return { videoRef, state, message, start, stop }
+  return { videoRef, state, backend, message, start, stop }
 }

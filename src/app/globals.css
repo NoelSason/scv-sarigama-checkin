@@ -44,6 +44,13 @@ html {
   -webkit-text-size-adjust: 100%;
 }
 
+/* Long single words — an email address, a family name — must never widen the
+   page. Horizontal scroll on a phone makes the scanner feel broken. */
+body {
+  overflow-x: hidden;
+  overflow-wrap: break-word;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);

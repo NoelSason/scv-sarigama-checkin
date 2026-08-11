@@ -59,7 +59,10 @@ export function Scanner({ staffName }: { staffName: string }) {
     }
   }, [])
 
-  const { videoRef, state, message, start, stop } = useQrScanner({ onScan: lookup, paused })
+  const { videoRef, state, backend, message, start, stop } = useQrScanner({
+    onScan: lookup,
+    paused,
+  })
 
   // Auto-dismiss result screens back to scanning. The success screen waits
   // longer than it needs to read, because that pause is the only window the
@@ -155,19 +158,38 @@ export function Scanner({ staffName }: { staffName: string }) {
 
   return (
     <div className="space-y-4">
-      {/* ---------------- camera ---------------- */}
-      <div className="relative overflow-hidden rounded-2xl bg-black">
-        <video
-          ref={videoRef}
-          muted
-          playsInline
-          className="aspect-[3/4] w-full object-cover sm:aspect-video"
-        />
-        <div id="qr-fallback-region" className="absolute inset-0" />
+      {/* ---------------- camera ----------------
+          Exactly one preview is mounted at a time. html5-qrcode injects its own
+          <video> and scan-region graphic, so leaving ours mounted alongside it
+          drew two boxes with a dead black band above them.
 
-        {state === 'running' && phase.kind === 'scanning' && (
+          Height is capped rather than a fixed aspect ratio: on a phone a 3:4
+          preview pushed the quantity buttons below the fold, and a volunteer
+          should never have to scroll between scanning and tapping a number. */}
+      <div className="relative overflow-hidden rounded-2xl bg-black">
+        {backend !== 'fallback' && (
+          <video
+            ref={videoRef}
+            muted
+            playsInline
+            className="h-[42dvh] max-h-[520px] min-h-[240px] w-full object-cover sm:h-[50dvh]"
+          />
+        )}
+
+        <div
+          id="qr-fallback-region"
+          className={
+            backend === 'fallback'
+              ? 'h-[42dvh] max-h-[520px] min-h-[240px] w-full [&_video]:h-full [&_video]:w-full [&_video]:object-cover'
+              : 'hidden'
+          }
+        />
+
+        {/* Our reticle belongs only to the native path — the fallback draws
+            its own, and two of them read as a broken screen. */}
+        {backend === 'native' && state === 'running' && phase.kind === 'scanning' && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <div className="h-56 w-56 rounded-2xl border-4 border-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
+            <div className="h-52 w-52 rounded-2xl border-4 border-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
           </div>
         )}
 
