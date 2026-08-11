@@ -15,6 +15,7 @@
  */
 
 var ENDPOINT = 'https://checkin.scvsarigama.com/api/sync/sheet-push';
+var WALKINS_ENDPOINT = 'https://checkin.scvsarigama.com/api/sync/walkins';
 var TAB_NAME = 'Form Responses 1';
 
 /**
@@ -106,6 +107,78 @@ function syncNow() {
     return 'FAILED (' + code + ') ' + text;
   }
 
-  console.log('Check-in sync ok: ' + text);
-  return text;
+  // Sheet → app is only half of it. Walk-ins are created at the desk, and the
+  // organizers' record of who paid is this sheet, so they have to come back.
+  var appended = pullWalkIns(secret);
+
+  console.log('Check-in sync ok: ' + text + ' | ' + appended);
+  return text + ' | ' + appended;
+}
+
+/**
+ * Append any walk-ins the app has taken that aren't in the sheet yet.
+ *
+ * Their Payment Mode is written as e.g. "Cash (app)". That marker is why these
+ * rows don't come back around and create the same family a second time — the
+ * importer recognises them as already-owned and skips them without flagging.
+ *
+ * Rows are only marked as written after the append succeeds, so a failure
+ * mid-way just means the next run tries again rather than losing anyone.
+ */
+function pullWalkIns(secret) {
+  var res = UrlFetchApp.fetch(WALKINS_ENDPOINT, {
+    method: 'get',
+    headers: { Authorization: 'Bearer ' + secret },
+    muteHttpExceptions: true,
+  });
+
+  if (res.getResponseCode() !== 200) {
+    console.error('walk-in fetch failed: ' + res.getContentText());
+    return 'walk-ins: fetch failed';
+  }
+
+  var data = JSON.parse(res.getContentText());
+  if (!data.values || data.values.length === 0) return 'walk-ins: none';
+
+  var sheet = SpreadsheetApp.getActive().getSheetByName(TAB_NAME);
+
+  // Insert above the trailing "Total" row rather than after it, so the sheet's
+  // own sum keeps covering every row.
+  var lastRow = sheet.getLastRow();
+  var totalRowIndex = findTotalRow(sheet, lastRow);
+  var startRow = totalRowIndex > 0 ? totalRowIndex : lastRow + 1;
+
+  if (totalRowIndex > 0) sheet.insertRowsBefore(totalRowIndex, data.values.length);
+
+  sheet
+    .getRange(startRow, 1, data.values.length, data.values[0].length)
+    .setValues(data.values);
+  SpreadsheetApp.flush();
+
+  var confirm = UrlFetchApp.fetch(WALKINS_ENDPOINT, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + secret },
+    payload: JSON.stringify({ ids: data.ids }),
+    muteHttpExceptions: true,
+  });
+
+  if (confirm.getResponseCode() !== 200) {
+    // The rows are in the sheet but unconfirmed, so the next run would append
+    // them again. Say so loudly rather than leaving a silent duplicate.
+    console.error('walk-ins appended but NOT confirmed — check for duplicates');
+    return 'walk-ins: ' + data.values.length + ' appended, CONFIRM FAILED';
+  }
+
+  return 'walk-ins: ' + data.values.length + ' appended';
+}
+
+/** The sheet ends with a `Total` row; returns its index, or 0 if absent. */
+function findTotalRow(sheet, lastRow) {
+  if (lastRow < 2) return 0;
+  var names = sheet.getRange(1, 2, lastRow, 1).getDisplayValues();
+  for (var i = names.length - 1; i >= 0; i--) {
+    if (String(names[i][0]).trim().toLowerCase() === 'total') return i + 1;
+  }
+  return 0;
 }

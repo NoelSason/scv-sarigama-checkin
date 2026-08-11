@@ -410,3 +410,54 @@ describe('csv path (no credentials required)', () => {
     ])
   })
 })
+
+describe('walk-in write-back cannot round-trip into a duplicate', () => {
+  // The app appends its own walk-ins to the sheet so the organizers' financial
+  // record stays complete. Those rows then come straight back through the
+  // importer on the next sync — and must not become a second household for a
+  // family who already has a pass.
+  const appRow = (name: string, mode: string, people: string) => [
+    '8/12/2026 14:03:11',
+    name,
+    '90.00',
+    people,
+    mode,
+    'TRUE',
+    'FALSE',
+    'No',
+    '',
+    'Added at the door via check-in app',
+  ]
+
+  it('skips rows the app wrote, without flagging them for review', () => {
+    const result = parseSheetRows([
+      HEADERS,
+      appRow('Desk Walk-in One', 'Cash (app)', '3'),
+      appRow('Desk Walk-in Two', 'Zelle (app)', '2'),
+      appRow('Desk Walk-in Three', 'Comp (app)', '1'),
+    ])
+
+    expect(result.rows).toHaveLength(0)
+    expect(result.skipped.map((s) => s.reason)).toEqual([
+      'from_checkin_app',
+      'from_checkin_app',
+      'from_checkin_app',
+    ])
+    // Silently ignored, not queued: a human has nothing to decide here.
+    expect(result.skipped.every((s) => s.needsReview === false)).toBe(true)
+    expect(result.stats.admissions).toBe(0)
+  })
+
+  it('a plain Zelle row still imports — the marker is what excludes, not the mode', () => {
+    const result = parseSheetRows([HEADERS, appRow('Real Zelle Family', 'Zelle', '3')])
+    expect(result.rows).toHaveLength(1)
+    expect(result.rows[0].admissions).toBe(3)
+  })
+
+  it('an unrecognised mode is still flagged — only our own marker is exempt', () => {
+    const result = parseSheetRows([HEADERS, appRow('Mystery Payer', 'Venmo', '2')])
+    expect(result.rows).toHaveLength(0)
+    expect(result.skipped[0].reason).toBe('other_payment_mode')
+    expect(result.skipped[0].needsReview).toBe(true)
+  })
+})

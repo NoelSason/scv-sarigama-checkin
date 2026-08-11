@@ -29,6 +29,13 @@ import { normalizeName, sha256 } from './tokens'
 export const TICKET_PRICES_CENTS = [2500, 3000] as const
 
 export const SHEETS_SOURCE = 'google_sheets'
+
+/**
+ * Appears in the Payment Mode of any row this app wrote back, e.g. "Cash (app)".
+ * Both sides of the round trip read this constant, so the marker cannot drift
+ * apart and start re-importing our own walk-ins.
+ */
+export const CHECKIN_APP_MARKER = '(app)'
 export const SHEETS_READONLY_SCOPE = 'https://www.googleapis.com/auth/spreadsheets.readonly'
 
 // ---------------------------------------------------------------------------
@@ -51,6 +58,9 @@ export type SkipReason =
   | 'credit_card'
   | 'other_payment_mode'
   | 'missing_payment_mode'
+  /** A walk-in this app created and wrote back to the sheet. Already a
+      household — importing it would issue the same family a second pass. */
+  | 'from_checkin_app'
 
 export type SheetField =
   | 'timestamp'
@@ -225,6 +235,11 @@ function isTotalRow(values: string[], columns: Partial<Record<SheetField, number
 
 /** Only `Zelle` is ours. Credit Card rows are issued from the Square API. */
 function classifyPaymentMode(mode: string): 'zelle' | SkipReason {
+  // Tested against the RAW value, not the normalized one: normalizeHeader
+  // strips punctuation, so "(app)" would survive only as "app" and could then
+  // match an unrelated mode by accident.
+  if (mode.toLowerCase().includes(CHECKIN_APP_MARKER)) return 'from_checkin_app'
+
   const m = normalizeHeader(mode)
   if (!m) return 'missing_payment_mode'
   if (m === 'zelle') return 'zelle'
@@ -336,9 +351,10 @@ export function parseSheetRows(rows: string[][]): ParseResult {
         paymentMode,
         displayName,
         fingerprint,
-        // A Credit Card row is expected here — Square owns it. A blank or
-        // unrecognised mode is money we cannot attribute to either importer.
-        needsReview: mode !== 'credit_card',
+        // A Credit Card row is expected here — Square owns it, and so is a row
+        // this app wrote back. A blank or unrecognised mode is money we cannot
+        // attribute to either importer, so a human should look at it.
+        needsReview: mode !== 'credit_card' && mode !== 'from_checkin_app',
       })
       continue
     }
