@@ -8,8 +8,11 @@
     "start": "next start",
     "lint": "eslint",
     "migrate": "dotenv -e .env.local -- tsx scripts/migrate.ts",
+    "import:sheet": "dotenv -e .env.local -- tsx --tsconfig tsconfig.scripts.json scripts/import-sheet.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "seed": "dotenv -e .env.local -- tsx scripts/seed.ts",
+    "create-staff": "dotenv -e .env.local -- tsx scripts/create-staff.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

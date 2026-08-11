@@ -1,0 +1,18 @@
+{
+  // tsx config for scripts/*.ts.
+  //
+  // src/lib/households.ts and src/lib/auth.ts start with `import 'server-only'`.
+  // Next's bundler aliases that specifier; plain Node cannot resolve it, so any
+  // CLI reusing those modules dies at import time. Point it at the empty module
+  // Next itself uses on the server. The root tsconfig is left alone so the
+  // real client-boundary guard keeps working in the app build.
+  //
+  //   npx tsx --tsconfig tsconfig.scripts.json scripts/import-sheet.ts
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"],
+      "server-only": ["./node_modules/next/dist/compiled/server-only/empty.js"]
+    }
+  }
+}
