@@ -36,7 +36,7 @@ type HistoryItem =
       metadata: Record<string, unknown>
     }
 
-type Tab = 'pass' | 'edit' | 'payment' | 'tickets' | 'history'
+type Tab = 'pass' | 'edit' | 'payment' | 'tickets' | 'giveback' | 'history'
 
 const METHODS: { value: PaymentMethod; label: string }[] = [
   { value: 'cash', label: 'Cash' },
@@ -343,6 +343,11 @@ function HouseholdPanel({
         <TabButton active={tab === 'edit'} onClick={() => setTab(toggle(tab, 'edit'))}>
           ✎ Edit details
         </TabButton>
+        {household.tickets_redeemed > 0 && (
+          <TabButton active={tab === 'giveback'} onClick={() => setTab(toggle(tab, 'giveback'))}>
+            ↩ Give back
+          </TabButton>
+        )}
         <TabButton active={tab === 'history'} onClick={() => setTab(toggle(tab, 'history'))}>
           ⏱ History
         </TabButton>
@@ -352,6 +357,7 @@ function HouseholdPanel({
       {tab === 'payment' && <PaymentPanel household={household} onSaved={applyChange} />}
       {tab === 'tickets' && <TicketsPanel household={household} onSaved={applyChange} />}
       {tab === 'edit' && <EditPanel household={household} onSaved={applyChange} />}
+      {tab === 'giveback' && <GiveBackPanel household={household} onSaved={applyChange} />}
       {tab === 'history' && <HistoryPanel items={history} />}
     </div>
   )
@@ -664,6 +670,158 @@ function PaymentPanel({
         className="btn-danger w-full py-5 text-lg"
       >
         ✕ MARK UNPAID
+      </button>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+
+/**
+ * Undo check-ins from the desk.
+ *
+ * Distinct from "Adjust tickets": that changes what a family *bought*, this
+ * changes what they've *eaten*. Volunteers conflate the two, so the copy names
+ * the difference explicitly — using Adjust to fix an over-scan would quietly
+ * inflate the number of meals the kitchen owes.
+ */
+function GiveBackPanel({
+  household,
+  onSaved,
+}: {
+  household: Household
+  onSaved: (h: Household, message: string) => void
+}) {
+  const used = household.tickets_redeemed
+  const [qty, setQty] = useState<number | null>(null)
+  const [reason, setReason] = useState('')
+  const [confirming, setConfirming] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function commit() {
+    if (qty === null) return
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/staff/reverse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          householdId: household.id,
+          quantity: qty,
+          reason: reason.trim() || 'Given back at the registration desk',
+        }),
+      })
+      const data = await res.json()
+      if (!data.success) {
+        setError(
+          data.error === 'INSUFFICIENT_REDEEMED'
+            ? `This family has only used ${data.tickets_redeemed}. Nothing was changed.`
+            : 'Could not give the admissions back. Nothing was changed.',
+        )
+        setConfirming(false)
+        return
+      }
+      // Re-read rather than trusting the RPC's echo: the panel shows contact
+      // details and payment state the reversal never touched.
+      const fresh = await fetch(`/api/staff/household/${household.id}`, { cache: 'no-store' })
+      const detail = await fresh.json()
+      onSaved(
+        detail.household,
+        `Gave back ${qty} admission${qty === 1 ? '' : 's'}. ${data.tickets_remaining} now left.`,
+      )
+    } catch {
+      setError('Could not reach the server. Nothing was changed.')
+      setConfirming(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (used === 0) {
+    return (
+      <div className="card text-center">
+        <p className="text-lg font-bold">Nothing to give back</p>
+        <p className="mt-1 text-black/60">
+          Nobody from this household has been checked in yet.
+        </p>
+      </div>
+    )
+  }
+
+  if (confirming && qty !== null) {
+    return (
+      <ConfirmChange
+        title="Confirm give-back"
+        from={`${household.tickets_remaining} left`}
+        to={`${household.tickets_remaining + qty} left`}
+        note={`Giving back ${qty} admission${qty === 1 ? '' : 's'}${
+          reason.trim() ? ` · ${reason.trim()}` : ''
+        }`}
+        error={error}
+        busy={saving}
+        confirmLabel={saving ? 'Saving…' : 'YES, GIVE THEM BACK'}
+        onConfirm={commit}
+        onCancel={() => setConfirming(false)}
+      />
+    )
+  }
+
+  return (
+    <div className="card space-y-3">
+      <p className="text-lg font-black">Give admissions back</p>
+      <p className="text-black/60">
+        Use this when someone was counted wrong at the food line — they were scanned for 3 but
+        only 2 ate. This family has used <strong>{used}</strong>.
+      </p>
+      <p className="rounded-xl bg-[var(--cream)] px-4 py-3 text-sm">
+        This does <strong>not</strong> change how many they bought. If they actually paid for a
+        different number, use <strong>Adjust tickets</strong> instead.
+      </p>
+
+      <p className="font-bold">How many to give back?</p>
+      <div className="grid grid-cols-3 gap-3">
+        {Array.from({ length: Math.min(used, 6) }, (_, i) => i + 1).map((n) => (
+          <button
+            key={n}
+            type="button"
+            onClick={() => setQty(n)}
+            className={
+              qty === n
+                ? 'btn-primary py-6 text-2xl'
+                : 'btn-neutral py-6 text-2xl'
+            }
+          >
+            {n}
+          </button>
+        ))}
+      </div>
+
+      <label htmlFor="giveback-reason" className="block font-semibold">
+        Reason <span className="font-normal text-black/50">(optional)</span>
+      </label>
+      <input
+        id="giveback-reason"
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        placeholder="e.g. scanned 3 but only 2 ate"
+        className="field"
+      />
+
+      {error && (
+        <p className="rounded-xl bg-[var(--danger-bg)] px-4 py-3 font-semibold text-[var(--danger)]">
+          ✕ {error}
+        </p>
+      )}
+
+      <button
+        type="button"
+        disabled={qty === null}
+        onClick={() => setConfirming(true)}
+        className="btn-primary w-full"
+      >
+        Continue
       </button>
     </div>
   )

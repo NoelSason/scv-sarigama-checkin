@@ -40,6 +40,11 @@ export default async function StaffLayout({ children }: { children: React.ReactN
                 Admin
               </Link>
             )}
+            {/* Reachable from every screen: the moment a volunteer needs the
+                instructions is the moment they are stuck mid-queue. */}
+            <Link href="/staff/help" className="rounded-lg px-3 py-2 hover:bg-white/15">
+              Help
+            </Link>
             <form action={doSignOut}>
               <button type="submit" className="rounded-lg px-3 py-2 hover:bg-white/15">
                 Sign out

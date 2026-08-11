@@ -35,6 +35,12 @@ export const dynamic = 'force-dynamic'
 
 const HANDLED = new Set(['payment.created', 'payment.updated', 'refund.updated'])
 
+/** For review-queue summaries only — an admin reads these, not a machine. */
+function formatMoney(money: { amount?: number } | undefined): string {
+  const cents = money?.amount
+  return typeof cents === 'number' ? `$${(cents / 100).toFixed(2)}` : 'an unknown amount'
+}
+
 // Square sends raw API JSON: snake_case, unlike the SDK's camelCase types.
 type EventMoney = { amount?: number; currency?: string }
 
@@ -238,7 +244,32 @@ async function handlePayment(
 
   const entitlement = mapOrderToEntitlement(order, variationMap)
   if (!entitlement.matched) {
-    // Some other product sold through the same store. Not ours, not an error.
+    // No line item matched a known Onam variation. Most likely a volunteer rang
+    // up a custom amount on Square POS instead of the catalog item — which is
+    // exactly the case that must not vanish, because a guest has paid and is
+    // standing at the desk expecting a pass.
+    //
+    // Flagging rather than provisioning: we know money arrived but not how many
+    // admissions it bought, and guessing from the amount is the one thing this
+    // system never does. An admin resolves it in seconds from the review queue.
+    await openReviewItem({
+      kind: 'unmapped_square_item',
+      sourceRecordId: orderId,
+      summary:
+        `Square payment of ${formatMoney(payment.amount_money ?? payment.total_money)} ` +
+        `has no recognised Onam ticket line — no admissions were granted. ` +
+        `Set the count by hand, or ask the buyer to purchase through the online store instead.`,
+      payload: {
+        event_id: eventId,
+        order_id: orderId,
+        payment_id: payment.id ?? null,
+        line_items: (order.lineItems ?? []).map((li) => ({
+          name: li.name ?? null,
+          variation_id: li.catalogObjectId ?? null,
+          quantity: li.quantity ?? null,
+        })),
+      },
+    })
     return null
   }
 

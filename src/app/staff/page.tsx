@@ -33,12 +33,23 @@ export default async function StaffHome() {
         )}
       </div>
 
+      <Link href="/staff/help" className="btn-neutral w-full py-6 text-lg">
+        📖 How to do this
+      </Link>
+
       <div className="card text-sm leading-relaxed text-black/70">
         <p className="font-bold text-[var(--foreground)]">Quick reminder</p>
         <p className="mt-1">
           Scanning shows the family&apos;s live balance. Ask how many people are entering
           <em> right now</em>, tap that number, and wait for the green screen before letting
           them through. Never admit someone from a screenshot alone.
+        </p>
+        <p className="mt-2">
+          Full instructions for the desk and the scanner are in{' '}
+          <Link href="/staff/help" className="font-semibold underline">
+            How to do this
+          </Link>
+          .
         </p>
       </div>
     </div>

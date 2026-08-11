@@ -5,8 +5,14 @@ Live at **https://checkin.scvsarigama.com**
 
 One household = one QR pass carrying N admissions. The QR identifies the family
 and nothing else — the balance lives in Postgres and is checked on every scan.
+
 So a family can screenshot the code, share it with their kids, and use it at
 three different times, and it still cannot be used more times than they paid for.
+
+**Passes are handed over in person.** A volunteer looks up the name, the QR
+appears on their screen, and the guest scans it with their own phone to receive
+it. No email is involved — which is what makes it work for the 40 of 92
+households who paid by Zelle and left no contact details behind.
 
 For volunteers on event day, read **[EVENT_DAY.md](./EVENT_DAY.md)** instead of this.
 
@@ -33,7 +39,6 @@ credential; every read and write goes through a route handler.
 | Route | Who | What |
 |---|---|---|
 | `/p/{token}` | guest, no login | The pass: QR, name, live balance |
-| `/find-pass` | public | Email/phone lookup that mails the link back |
 | `/staff/scan` | volunteer | Scan → confirm → redeem → optional give-back |
 | `/staff/registration` | volunteer | Search, walk-ins, payment, ticket fixes |
 | `/staff/admin` | volunteer | Stats, review queue, reversals, CSV, emergency lookup |

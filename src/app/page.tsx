@@ -3,9 +3,13 @@ import Link from 'next/link'
 export const metadata = { title: 'SCV Sarigama Onam 2026' }
 
 /**
- * Root landing. Almost nobody arrives here — guests get a direct /p/{token}
- * link — so it exists mainly to give a lost guest somewhere useful to go, and
- * volunteers a way in.
+ * Root landing.
+ *
+ * Almost nobody arrives here: guests reach their pass by scanning the QR a
+ * volunteer shows them at the desk, which drops them straight on /p/{token}.
+ * This page exists for the person who typed the domain in by hand, so it says
+ * the one true thing — come to the desk — rather than inventing a self-service
+ * route that doesn't exist.
  */
 export default function Home() {
   return (
@@ -20,14 +24,13 @@ export default function Home() {
       <div className="mt-10 space-y-4">
         <div className="card">
           <h2 className="text-lg font-bold">Looking for your Sadhya pass?</h2>
-          <p className="mt-1 text-[15px] leading-relaxed text-black/70">
-            Open the link that was sent to you. If you can&apos;t find it, we can send it
-            again — or just come to the registration desk when you arrive and a volunteer
-            will pull it up for you.
+          <p className="mt-2 text-[15px] leading-relaxed text-black/70">
+            Come to the registration desk when you arrive. A volunteer will find your name and
+            show you a code to scan — your pass opens on your own phone, and you keep it.
           </p>
-          <Link href="/find-pass" className="btn-gold mt-4 w-full">
-            Find my pass
-          </Link>
+          <p className="mt-3 text-[15px] leading-relaxed text-black/70">
+            Already have your pass open? Just show it at the Sadhya entrance.
+          </p>
         </div>
 
         <Link href="/staff" className="btn-neutral w-full">

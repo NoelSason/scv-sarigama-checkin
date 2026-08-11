@@ -49,7 +49,7 @@ export async function verifyPassword(password: string, stored: string): Promise<
 // ---------------------------------------------------------------------------
 // Identity normalization
 //
-// Used for dedupe and for /find-pass lookups. Kept deliberately simple: we
+// Used for dedupe and for desk search. Kept deliberately simple: we
 // never auto-merge on these alone (see the review queue), so an imperfect
 // normalization surfaces a human decision rather than corrupting the ledger.
 // ---------------------------------------------------------------------------
