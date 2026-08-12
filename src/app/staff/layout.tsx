@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { currentStaff } from '@/lib/auth'
 import { ConnectionBanner } from '@/components/ConnectionBanner'
+import { KasavuBand, Lamp } from '@/components/onam'
 import { signOutAction } from './actions'
 
 export const dynamic = 'force-dynamic'
@@ -25,9 +26,18 @@ export default async function StaffLayout({ children }: { children: React.ReactN
           a mid-queue control. Scan, Desk and Help keep their words, because
           those are the ones a volunteer hunts for with a queue in front of
           them. */}
-      <header className="sticky top-0 z-20 border-b border-black/10 bg-[var(--green-deep)] text-white">
+      <header className="sticky top-0 z-20 bg-[var(--green-deep)] text-white">
         <div className="mx-auto flex max-w-3xl items-center gap-1 px-3 py-2">
-          <Link href="/staff" className="shrink-0 font-black tracking-tight">
+          {/* The lamp is the brand mark, but it costs ~22px next to a nav row
+              that only just fits a 360px phone for an admin. Below sm the
+              kasavu band under this bar carries the identity instead. */}
+          <Link
+            href="/staff"
+            className="inline-flex shrink-0 items-center gap-[7px] font-black tracking-tight"
+          >
+            <span className="hidden sm:inline-flex">
+              <Lamp width={15} tone="bright" />
+            </span>
             <span className="sm:hidden">Onam</span>
             <span className="hidden sm:inline">Onam Check-In</span>
           </Link>
@@ -95,6 +105,8 @@ export default async function StaffLayout({ children }: { children: React.ReactN
             </form>
           </nav>
         </div>
+
+        <KasavuBand height={4} />
       </header>
 
       <main className="mx-auto max-w-3xl px-3 py-4 sm:px-4 sm:py-5">{children}</main>

@@ -166,7 +166,7 @@ export function Scanner({ staffName }: { staffName: string }) {
           Height is capped rather than a fixed aspect ratio: on a phone a 3:4
           preview pushed the quantity buttons below the fold, and a volunteer
           should never have to scroll between scanning and tapping a number. */}
-      <div className="relative overflow-hidden rounded-2xl bg-black">
+      <div className="relative overflow-hidden rounded-2xl bg-black shadow-[0_0_0_2px_rgba(200,149,28,0.5)]">
         {backend !== 'fallback' && (
           <video
             ref={videoRef}
@@ -189,7 +189,7 @@ export function Scanner({ staffName }: { staffName: string }) {
             its own, and two of them read as a broken screen. */}
         {backend === 'native' && state === 'running' && phase.kind === 'scanning' && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <div className="h-52 w-52 rounded-2xl border-4 border-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
+            <div className="h-52 w-52 rounded-2xl border-4 border-[rgba(232,184,75,0.9)] shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
           </div>
         )}
 
@@ -243,7 +243,7 @@ export function Scanner({ staffName }: { staffName: string }) {
       )}
 
       {phase.kind === 'success' && (
-        <div className="rounded-2xl bg-[var(--ok)] p-7 text-center text-white">
+        <div className="rounded-2xl bg-[var(--ok)] p-7 text-center text-white shadow-[inset_0_0_0_2px_rgba(232,184,75,0.4)]">
           <p className="text-5xl font-black">✓</p>
           <p className="mt-2 text-3xl font-black">
             {phase.redeemed} ADMITTED
@@ -273,7 +273,7 @@ export function Scanner({ staffName }: { staffName: string }) {
       )}
 
       {phase.kind === 'returned' && (
-        <div className="rounded-2xl bg-[var(--gold-deep)] p-7 text-center text-white">
+        <div className="rounded-2xl bg-[var(--gold-deep)] p-7 text-center text-white shadow-[inset_0_0_0_2px_rgba(255,253,246,0.35)]">
           <p className="text-5xl font-black">↩</p>
           <p className="mt-2 text-3xl font-black">{phase.restored} GIVEN BACK</p>
           <p className="mt-1 text-lg font-semibold">{phase.name}</p>
@@ -440,8 +440,8 @@ function RedeemPanel({
   const quick = Array.from({ length: quickMax }, (_, i) => i + 1)
 
   return (
-    <div className="card border-2 border-[var(--green)]">
-      <p className="text-2xl font-black break-words">{household.display_name}</p>
+    <div className="card border-2 border-[var(--green)] shadow-[0_6px_18px_-12px_rgba(18,74,51,0.5)]">
+      <p className="display text-[26px] leading-[34px] break-words">{household.display_name}</p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <StatusPill status={household.payment_status} />
         <span className="text-sm text-black/60">
@@ -449,10 +449,10 @@ function RedeemPanel({
         </span>
       </div>
 
-      <p className="mt-4 text-center text-5xl font-black tabular-nums text-[var(--green-deep)]">
+      <p className="display mt-4 text-center text-[52px] leading-none tabular-nums text-[var(--green-deep)]">
         {remaining}
       </p>
-      <p className="text-center font-bold">REMAINING</p>
+      <p className="text-center font-extrabold tracking-[0.08em]">REMAINING</p>
 
       <p className="mt-6 text-center text-lg font-black">HOW MANY ARE ENTERING?</p>
 
@@ -642,9 +642,9 @@ function ManualSearch({ onPick }: { onPick: (h: Household) => void }) {
           key={h.id}
           type="button"
           onClick={() => onPick(h)}
-          className="w-full rounded-xl border-2 border-black/10 bg-white p-4 text-left active:scale-[0.99]"
+          className="w-full rounded-xl border-2 border-[var(--line)] bg-[var(--card)] p-4 text-left transition hover:bg-[var(--cream)] active:scale-[0.99]"
         >
-          <span className="block text-lg font-bold">{h.display_name}</span>
+          <span className="block text-lg font-extrabold">{h.display_name}</span>
           <span className="mt-1 flex flex-wrap items-center gap-2">
             <StatusPill status={h.payment_status} />
             <span className="text-sm text-black/60 tabular-nums">

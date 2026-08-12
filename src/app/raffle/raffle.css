@@ -58,6 +58,28 @@
   }
 }
 
+/* Pookalam rings cresting the stage. Hollow-cored here rather than filled: on
+   a projected screen a bright centre this large reads as a lens flare. */
+.raffle-arc {
+  position: absolute;
+  top: -190px;
+  left: 50%;
+  width: 380px;
+  height: 380px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0.14;
+  background: radial-gradient(
+    circle,
+    transparent 0 60px,
+    #e8b84b 60px 100px,
+    #e8871e 100px 138px,
+    #b3341b 138px 168px,
+    transparent 168px
+  );
+}
+
 /* ---------------------------------------------------------------- the reel */
 
 .reel-window {
@@ -103,7 +125,8 @@
 }
 
 .reel-card-name {
-  font-weight: 800;
+  font-family: var(--font-playfair), Georgia, serif;
+  font-weight: 700;
   font-size: clamp(0.95rem, 2.1vw, 1.5rem);
   line-height: 1.15;
   letter-spacing: -0.01em;
@@ -241,7 +264,8 @@
 @media (prefers-reduced-motion: reduce) {
   .raffle-root::before,
   .winner-glow,
-  .stage-shake {
+  .stage-shake,
+  .lamp-glow {
     animation: none;
   }
 

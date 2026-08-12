@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import type { Household, PaymentMethod, PaymentStatus } from '@/lib/households'
 import { StatusPill, TicketCounts } from '@/components/StatusPill'
+import { KasavuBand } from '@/components/onam'
 
 /**
  * Registration desk.
@@ -109,7 +110,7 @@ export function RegistrationDesk({ staffName }: { staffName: string }) {
 
   return (
     <div className="space-y-4">
-      <label htmlFor="desk-search" className="block text-lg font-black">
+      <label htmlFor="desk-search" className="display block text-[22px] leading-[30px]">
         Find a family
       </label>
       {/* min-height rather than extra padding: padding would collide with
@@ -172,9 +173,11 @@ function ResultRow({ household, onOpen }: { household: Household; onOpen: () => 
     <button
       type="button"
       onClick={onOpen}
-      className="w-full rounded-2xl border-2 border-black/10 bg-white p-4 text-left active:scale-[0.99]"
+      className="w-full rounded-2xl border-2 border-[var(--line)] bg-[var(--card)] p-4 text-left transition hover:bg-[var(--cream)] active:scale-[0.99]"
     >
-      <span className="block text-xl font-bold break-words">{household.display_name}</span>
+      <span className="display block text-[21px] leading-7 font-bold break-words">
+        {household.display_name}
+      </span>
       {contact.length > 0 && (
         <span className="mt-1 block text-sm text-black/55">{contact.join(' · ')}</span>
       )}
@@ -268,8 +271,10 @@ function HouseholdPanel({
         ← Back to search
       </button>
 
-      <div className="card border-2 border-[var(--green)]">
-        <p className="text-2xl font-black break-words">{household.display_name}</p>
+      <div className="card-banded border-2 border-[var(--green)] shadow-[0_6px_18px_-12px_rgba(18,74,51,0.5)]">
+        <KasavuBand height={5} />
+        <div className="p-5">
+        <p className="display text-[26px] leading-[34px] break-words">{household.display_name}</p>
 
         <div className="mt-2">
           <StatusPill status={household.payment_status} />
@@ -318,10 +323,11 @@ function HouseholdPanel({
         )}
 
         {household.notes && (
-          <p className="mt-3 rounded-xl bg-[var(--cream)] px-3 py-2 text-sm break-words">
+          <p className="mt-3 rounded-xl border border-[var(--line)] bg-[var(--cream)] px-3 py-2 text-sm break-words">
             {household.notes}
           </p>
         )}
+        </div>
       </div>
 
       {loadError && (
@@ -433,8 +439,8 @@ function PassPanel({ household }: { household: Household }) {
 
   return (
     <div className="card text-center">
-      <p className="text-2xl font-black break-words">{household.display_name}</p>
-      <p className="mt-1 text-lg font-semibold text-[var(--green-deep)]">
+      <p className="display text-[26px] leading-[34px] break-words">{household.display_name}</p>
+      <p className="mt-1 text-lg font-bold text-[var(--green-deep)]">
         {household.tickets_purchased} Sadhya admission
         {household.tickets_purchased === 1 ? '' : 's'}
         {household.children_under_6 > 0 && (
@@ -444,7 +450,7 @@ function PassPanel({ household }: { household: Household }) {
         )}
       </p>
 
-      <p className="mt-4 rounded-xl bg-[var(--cream)] px-4 py-3 text-lg font-black">
+      <p className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--cream)] px-4 py-3 text-lg font-black">
         📷 Ask them to point their phone camera at this
       </p>
 
@@ -455,7 +461,7 @@ function PassPanel({ household }: { household: Household }) {
       <img
         src={state.dataUrl}
         alt={`Sadhya pass QR code for ${household.display_name}`}
-        className="mx-auto mt-3 w-full max-w-md rounded-xl border border-black/10 bg-white"
+        className="mx-auto mt-3 w-full max-w-md rounded-xl border border-[var(--line-strong)] bg-white"
       />
 
       <p className="mt-3 text-[15px] leading-relaxed text-black/70">
@@ -775,7 +781,7 @@ function GiveBackPanel({
         Use this when someone was counted wrong at the food line — they were scanned for 3 but
         only 2 ate. This family has used <strong>{used}</strong>.
       </p>
-      <p className="rounded-xl bg-[var(--cream)] px-4 py-3 text-sm">
+      <p className="rounded-xl border border-[var(--line)] bg-[var(--cream)] px-4 py-3 text-sm">
         This does <strong>not</strong> change how many they bought. If they actually paid for a
         different number, use <strong>Adjust tickets</strong> instead.
       </p>
@@ -1154,7 +1160,7 @@ function WalkInForm({
       </button>
 
       <div className="card space-y-3">
-        <p className="text-xl font-black">New walk-in</p>
+        <p className="display text-[22px] leading-[30px]">New walk-in</p>
 
         <Field label="Name *">
           <input
@@ -1222,7 +1228,7 @@ function WalkInForm({
             placeholder="0"
             className="field text-2xl font-black"
           />
-          <p className="mt-1 rounded-xl bg-[var(--cream)] px-3 py-2 text-sm font-semibold">
+          <p className="mt-1 rounded-xl border border-[var(--line)] bg-[var(--cream)] px-3 py-2 text-sm font-semibold">
             Children under 6 enter free — no ticket needed. Do not count them in the admissions
             above.
           </p>
@@ -1281,7 +1287,7 @@ function CreatedPanel({ household, onDone }: { household: Household; onDone: () 
   return (
     <div className="space-y-4">
       <div
-        className={`rounded-2xl p-7 text-center text-white ${
+        className={`rounded-2xl p-7 text-center text-white shadow-[inset_0_0_0_2px_rgba(232,184,75,0.4)] ${
           paid ? 'bg-[var(--ok)]' : 'bg-[var(--warn)]'
         }`}
       >

@@ -15,7 +15,7 @@ export default async function AdminPage() {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-2xl font-black">Admin</h1>
+        <h1 className="display text-[26px] leading-[34px]">Admin</h1>
         <nav className="ml-auto flex gap-2 text-sm font-semibold">
           <Link href="/staff/admin/review" className="btn-neutral px-4 py-2">
             Review queue

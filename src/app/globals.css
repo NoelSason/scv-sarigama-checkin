@@ -1,42 +1,73 @@
 @import "tailwindcss";
 
 /*
- * Onam palette. Deliberately light-only: staff use this outdoors in daylight
- * on borrowed phones, and a dark scheme kicking in from a device setting would
+ * Onam palette — kasavu ivory and gold as the base, pookalam marigold as the
+ * accent. Deliberately light-only: staff use this outdoors in daylight on
+ * borrowed phones, and a dark scheme kicking in from a device setting would
  * hurt legibility and wreck QR contrast. High contrast beats theming here.
  */
 :root {
-  --background: #fdfaf3;
-  --foreground: #1c1a14;
+  --background: #fbf6ea; /* kasavu ivory */
+  --foreground: #241f14;
+
+  --card: #fffdf6; /* card cream */
+  --cream: #fff6df; /* deep cream — inset notes, stubs, hover */
 
   --gold: #c8951c;
+  --gold-bright: #e8b84b;
   --gold-deep: #8a6410;
   --green: #1c6b4a;
   --green-deep: #124a33;
-  --cream: #fff9ec;
+  --marigold: #e8871e;
+  --marigold-deep: #c05a12;
+  --kumkum: #b3341b;
 
+  /* Gold-tinted hairlines. Black rules read as grime against ivory. */
+  --line: rgba(200, 149, 28, 0.35);
+  --line-strong: rgba(200, 149, 28, 0.5);
+
+  /* Status colours are safety signals for volunteers in daylight, not brand
+     surface — unchanged from the shipped app. */
   --ok: #14713f;
   --ok-bg: #e6f5ec;
   --warn: #8a5a00;
   --warn-bg: #fdf3dd;
   --danger: #a4231c;
   --danger-bg: #fdeceb;
+
+  /* The kasavu band: gold thread on gold, repeated. One definition, used on
+     card tops, the staff header underline, and every footer. */
+  --kasavu: repeating-linear-gradient(
+    90deg,
+    var(--gold) 0 14px,
+    var(--gold-bright) 14px 22px,
+    var(--gold-deep) 22px 26px
+  );
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-cream: var(--cream);
   --color-gold: var(--gold);
+  --color-gold-bright: var(--gold-bright);
   --color-gold-deep: var(--gold-deep);
   --color-green: var(--green);
   --color-green-deep: var(--green-deep);
-  --color-cream: var(--cream);
+  --color-marigold: var(--marigold);
+  --color-marigold-deep: var(--marigold-deep);
+  --color-kumkum: var(--kumkum);
   --color-ok: var(--ok);
   --color-ok-bg: var(--ok-bg);
   --color-warn: var(--warn);
   --color-warn-bg: var(--warn-bg);
   --color-danger: var(--danger);
   --color-danger-bg: var(--danger-bg);
+
+  --font-display: var(--font-playfair), Georgia, serif;
+  --font-sans: var(--font-nunito), ui-sans-serif, system-ui, sans-serif;
+  --font-malayalam: var(--font-manjari), var(--font-nunito), sans-serif;
 }
 
 html {
@@ -54,57 +85,197 @@ body {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-nunito), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    sans-serif;
   /* Volunteers tap fast and repeatedly; stop iOS treating that as zoom. */
   touch-action: manipulation;
 }
 
 /* Inputs at 16px+ so iOS Safari doesn't zoom the viewport on focus — that
-   zoom is the single most disorienting thing at a busy registration desk. */
-input,
-select,
-textarea,
-button {
-  font-size: 16px;
+   zoom is the single most disorienting thing at a busy registration desk.
+   In @layer base so it acts as a floor a call site can raise (the desk search
+   is 24px, the quantity buttons 30px) rather than a ceiling nothing escapes. */
+@layer base {
+  input,
+  select,
+  textarea,
+  button {
+    font-size: 16px;
+  }
 }
 
-/* Big, unambiguous touch targets for gloved/hurried hands.
-   The shared base is listed as a selector group rather than @apply'd into each
-   variant: Tailwind v4 only lets @apply pull in core utilities, not our own
-   classes. Grouping keeps `btn-primary` usable on its own in markup. */
-.btn,
-.btn-primary,
-.btn-gold,
-.btn-neutral,
-.btn-danger {
-  @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-4
-         font-semibold transition active:scale-[0.98] disabled:opacity-40
-         disabled:pointer-events-none;
-  min-height: 3.25rem;
-}
-.btn-primary {
-  @apply bg-[var(--green)] text-white hover:bg-[var(--green-deep)];
-}
-.btn-gold {
-  @apply bg-[var(--gold)] text-white hover:bg-[var(--gold-deep)];
-}
-.btn-neutral {
-  @apply border-2 border-black/15 bg-white text-[var(--foreground)] hover:bg-black/5;
-}
-.btn-danger {
-  @apply border-2 border-[var(--danger)] bg-white text-[var(--danger)] hover:bg-[var(--danger-bg)];
+/* ------------------------------------------------------------------ type */
+
+/* Layered so a call site can still override the weight or colour with a plain
+   Tailwind utility — the raffle stage needs a lighter greeting on dark, and
+   some headings want 700 rather than 800. Unlayered rules would beat every
+   utility and quietly ignore those. */
+@layer components {
+  /* Playfair carries event names, family names and the big counts. Everything
+     operational stays in Nunito Sans — a serif at 14px on a cracked screen in
+     sunlight is worse in every way that matters here. */
+  .display {
+    font-family: var(--font-playfair), Georgia, serif;
+    font-weight: 800;
+    letter-spacing: 0;
+  }
+
+  /* Malayalam greetings only, always paired with English context. */
+  .greeting {
+    font-family: var(--font-manjari), var(--font-nunito), sans-serif;
+    font-weight: 700;
+    color: var(--marigold-deep);
+  }
 }
 
-.field {
-  @apply w-full rounded-xl border-2 border-black/15 bg-white px-4 py-3
-         outline-none focus:border-[var(--green)];
+/* ------------------------------------------------------------------ motifs */
+
+/* Kasavu band. Sized by the element; 4–8px on chrome, 5px on footers. */
+.kasavu {
+  background: var(--kasavu);
 }
 
-.card {
-  @apply rounded-2xl border border-black/10 bg-white p-5 shadow-sm;
+/* Pookalam arc — the floral-carpet rings cresting the top of a guest page at
+   low opacity. Decorative only; it never overlaps content. */
+.pookalam-arc {
+  position: absolute;
+  top: -150px;
+  left: 50%;
+  width: 300px;
+  height: 300px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0.16;
+  background: radial-gradient(
+    circle,
+    #ffffff 0 26px,
+    var(--gold-bright) 26px 56px,
+    var(--marigold) 56px 88px,
+    var(--kumkum) 88px 118px,
+    var(--green) 118px 148px,
+    transparent 148px
+  );
 }
 
-/* Status pills always pair colour with a text label — never colour alone. */
-.pill {
-  @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-bold;
+/* Petals drift down guest pages only, never over the QR (they sit behind the
+   content layer), and never at all under reduced-motion. */
+.petal {
+  position: fixed;
+  top: -24px;
+  border-radius: 50% 50% 50% 50% / 62% 62% 38% 38%;
+  pointer-events: none;
+  z-index: 1;
+  animation: petal-fall linear infinite;
+}
+
+@keyframes petal-fall {
+  0% {
+    transform: translate3d(0, -6vh, 0) rotate(0deg);
+  }
+  25% {
+    transform: translate3d(14px, 22vh, 0) rotate(80deg);
+  }
+  50% {
+    transform: translate3d(-10px, 50vh, 0) rotate(170deg);
+  }
+  75% {
+    transform: translate3d(12px, 78vh, 0) rotate(260deg);
+  }
+  100% {
+    transform: translate3d(-6px, 108vh, 0) rotate(350deg);
+  }
+}
+
+/* The nilavilakku flame breathes. Slow enough to read as a lamp, not a blink. */
+.lamp-glow {
+  animation: lamp-glow 3.5s ease-in-out infinite;
+}
+
+@keyframes lamp-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 4px rgba(232, 184, 75, 0.55));
+  }
+  50% {
+    filter: drop-shadow(0 0 13px rgba(232, 135, 30, 0.9));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .petal {
+    display: none;
+  }
+  .lamp-glow {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------------------------ controls */
+
+/* All of these live in @layer components so a call site can override one
+   property with a plain utility — `btn-primary py-8`, `card border-2
+   border-[var(--green)]`, `card bg-[var(--warn-bg)]`. Unlayered rules beat
+   every Tailwind utility regardless of specificity, which silently swallowed
+   those overrides. The layer is what makes them take effect. */
+@layer components {
+  /* Big, unambiguous touch targets for gloved/hurried hands.
+     The shared base is listed as a selector group rather than @apply'd into
+     each variant: Tailwind v4 only lets @apply pull in core utilities, not our
+     own classes. Grouping keeps `btn-primary` usable on its own in markup.
+
+     Sizes and paddings are unchanged from the shipped app — the restyle is not
+     allowed to move a hit target. */
+  .btn,
+  .btn-primary,
+  .btn-gold,
+  .btn-neutral,
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-4
+           font-semibold transition active:scale-[0.98] disabled:opacity-40
+           disabled:pointer-events-none;
+    min-height: 3.25rem;
+  }
+  /* The inset hairline is the kasavu edge on a solid button — it reads as a
+     woven border at arm's length without costing any contrast. */
+  .btn-primary {
+    @apply bg-[var(--green)] text-white hover:bg-[var(--green-deep)];
+    box-shadow: inset 0 0 0 1px rgba(232, 184, 75, 0.35);
+  }
+  .btn-gold {
+    @apply bg-[var(--gold)] text-white hover:bg-[var(--gold-deep)];
+    box-shadow: inset 0 0 0 1px rgba(255, 253, 246, 0.35);
+  }
+  .btn-neutral {
+    @apply border-2 border-[var(--line-strong)] bg-white text-[var(--foreground)]
+           hover:bg-[var(--cream)];
+  }
+  .btn-danger {
+    @apply border-2 border-[var(--danger)] bg-white text-[var(--danger)]
+           hover:bg-[var(--danger-bg)];
+  }
+
+  .field {
+    @apply w-full rounded-xl border-2 border-[var(--line-strong)] bg-white px-4 py-3
+           outline-none focus:border-[var(--green)];
+  }
+
+  .card {
+    @apply rounded-2xl border border-[var(--line-strong)] bg-[var(--card)] p-5;
+    box-shadow: 0 6px 18px -12px rgba(138, 100, 16, 0.4);
+  }
+
+  /* A card whose top edge is a woven band. Used where a surface is a keepsake
+     or a headline rather than a form: the pass, the quick-reminder, the
+     pre-event panel. The band is a child element so the card keeps its own
+     padding. */
+  .card-banded {
+    @apply overflow-hidden rounded-2xl border border-[var(--line-strong)] bg-[var(--card)];
+    box-shadow: 0 6px 18px -12px rgba(138, 100, 16, 0.4);
+  }
+
+  /* Status pills always pair colour with a text label — never colour alone. */
+  .pill {
+    @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-bold;
+  }
 }

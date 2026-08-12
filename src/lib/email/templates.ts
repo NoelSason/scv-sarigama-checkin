@@ -59,6 +59,21 @@ function childrenPhrase(count: number): string | null {
 
 const FONT = "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
 
+/**
+ * The display face is Georgia here, not Playfair. Webfonts are stripped or
+ * ignored across Gmail, Outlook and Apple Mail, so the closest thing to a
+ * high-contrast serif that is genuinely everywhere is the right call.
+ */
+const SERIF = "Georgia, 'Times New Roman', serif"
+
+/**
+ * The kasavu band. `background-color` first so clients that drop
+ * background-image — Outlook, parts of Gmail — still show a solid gold bar
+ * rather than a white gap where the border should be.
+ */
+const KASAVU =
+  'background-color:#C8951C;background-image:repeating-linear-gradient(90deg, #C8951C 0 14px, #E8B84B 14px 22px, #8a6410 22px 26px);'
+
 export function renderPassEmail(
   household: PassEmailHousehold,
   passHref: string,
@@ -83,21 +98,26 @@ export function renderPassEmail(
     'admissions being used at that moment.',
     ...(children ? ['', children] : []),
     '',
-    'SCV Sarigama Onam 2026',
+    'ഓണാശംസകൾ — SCV Sarigama Onam 2026',
   ].join('\n')
 
-  const html = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#fdfaf3;margin:0;padding:0;">
+  const html = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#FBF6EA;margin:0;padding:0;">
   <tr>
     <td align="center" style="padding:24px 12px;">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:520px;background-color:#ffffff;border-radius:16px;border:1px solid #e7e0cf;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:520px;background-color:#FFFDF6;border-radius:16px;border:1px solid #dfc98a;">
         <tr>
-          <td align="center" style="padding:28px 24px 4px 24px;font-family:${FONT};">
+          <td height="7" style="${KASAVU}line-height:7px;font-size:0;">&nbsp;</td>
+        </tr>
+        <tr>
+          <td align="center" style="padding:26px 24px 4px 24px;font-family:${FONT};">
             <div style="font-size:12px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#8a6410;">SCV Sarigama</div>
-            <div style="font-size:30px;font-weight:800;color:#124a33;padding-top:4px;">Onam 2026</div>
+            <div style="font-family:${SERIF};font-size:32px;font-weight:700;color:#124a33;padding-top:4px;">Onam 2026</div>
+            <div style="font-size:15px;font-weight:700;color:#C05A12;padding-top:4px;">ഓണാശംസകൾ</div>
+            <div style="padding-top:12px;font-size:13px;color:#8a6410;letter-spacing:2px;">✿ &nbsp;✿ &nbsp;✿</div>
           </td>
         </tr>
         <tr>
-          <td style="padding:20px 28px 0 28px;font-family:${FONT};font-size:17px;line-height:1.6;color:#1c1a14;">
+          <td style="padding:16px 28px 0 28px;font-family:${FONT};font-size:17px;line-height:1.6;color:#241f14;">
             <p style="margin:0 0 16px 0;">Hi ${escapeHtml(name)},</p>
             <p style="margin:0 0 16px 0;">Your Onam payment has been received.</p>
             <p style="margin:0;">Your reservation includes <strong style="color:#124a33;">${escapeHtml(admissions)}</strong>.</p>
@@ -107,7 +127,7 @@ export function renderPassEmail(
           <td align="center" style="padding:24px 28px;">
             <table role="presentation" cellpadding="0" cellspacing="0" border="0">
               <tr>
-                <td align="center" bgcolor="#1c6b4a" style="border-radius:12px;">
+                <td align="center" bgcolor="#1c6b4a" style="border-radius:12px;border:1px solid #E8B84B;">
                   <a href="${escapeHtml(passHref)}" style="display:block;padding:16px 34px;font-family:${FONT};font-size:17px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:12px;">View my pass</a>
                 </td>
               </tr>
@@ -124,7 +144,7 @@ export function renderPassEmail(
           children
             ? `<tr>
           <td style="padding:20px 28px 0 28px;">
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#fff9ec;border-radius:12px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#FFF6DF;border:1px solid #ecd9a6;border-radius:12px;">
               <tr>
                 <td style="padding:14px 18px;font-family:${FONT};font-size:15px;line-height:1.6;color:#8a6410;">${escapeHtml(children)}</td>
               </tr>
@@ -140,9 +160,12 @@ export function renderPassEmail(
           </td>
         </tr>
         <tr>
-          <td align="center" style="padding:8px 28px 28px 28px;font-family:${FONT};font-size:12px;color:#9a9583;">
+          <td align="center" style="padding:8px 28px 24px 28px;font-family:${FONT};font-size:12px;color:#9a9583;">
             SCV Sarigama Onam 2026
           </td>
+        </tr>
+        <tr>
+          <td height="7" style="${KASAVU}line-height:7px;font-size:0;">&nbsp;</td>
         </tr>
       </table>
     </td>

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { RafflePoolEntry, RaffleState } from '@/lib/raffle'
+import { Lamp } from '@/components/onam'
 import { Confetti } from './Confetti'
 
 /*
@@ -558,13 +559,21 @@ export function RaffleStage({ initial }: { initial: RaffleState }) {
     <div className={`raffle-root ${shake ? 'stage-shake' : ''}`}>
       {phase.kind === 'won' && !reduced && <Confetti key={phase.winner.drawId} />}
 
+      <div aria-hidden className="raffle-arc" />
+
       <div className="relative z-10 mx-auto flex min-h-dvh w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-8">
         <header className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.3em] text-[#e0bb63]">
-              SCV Sarigama · Onam 2026
-            </p>
-            <h1 className="mt-1 text-3xl font-black tracking-tight sm:text-4xl">Raffle</h1>
+          <div className="flex items-start gap-3.5">
+            <Lamp width={30} glow tone="bright" className="mt-0.5 shrink-0" />
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.3em] text-[#e0bb63]">
+                SCV Sarigama · Onam 2026
+              </p>
+              <h1 className="display mt-1 text-[2rem] leading-none sm:text-[2.5rem]">Raffle</h1>
+              <p lang="ml" className="greeting mt-1 text-[15px] leading-[22px] text-[rgba(224,187,99,0.85)]">
+                ഓണാശംസകൾ
+              </p>
+            </div>
           </div>
 
           {/* No mute control: the ticking reel and the fanfare are the point of
@@ -593,7 +602,7 @@ export function RaffleStage({ initial }: { initial: RaffleState }) {
                   <p className="text-xs font-bold uppercase tracking-[0.3em] text-[#e0bb63]">
                     {phase.winner.prize}
                   </p>
-                  <p className="winner-glow mt-3 text-4xl font-black leading-tight text-[#ffd977] sm:text-6xl">
+                  <p className="display winner-glow mt-3 text-4xl leading-tight text-[#ffd977] sm:text-6xl">
                     {phase.winner.name}
                   </p>
                   <p className="mt-4 text-sm text-white/60">
@@ -624,7 +633,7 @@ export function RaffleStage({ initial }: { initial: RaffleState }) {
                 <section className="fade-up">
                   {poolEmpty ? (
                     <div className="rounded-2xl border border-[#ffd977]/40 bg-[#ffd977]/10 p-6 text-center">
-                      <p className="text-xl font-black text-[#ffd977]">Everyone has been drawn</p>
+                      <p className="display text-xl text-[#ffd977]">Everyone has been drawn</p>
                       <p className="mt-2 text-sm text-white/70">
                         No names are left in the pool. Reset below to put them all back in.
                       </p>
@@ -685,7 +694,7 @@ export function RaffleStage({ initial }: { initial: RaffleState }) {
                       key={d.id}
                       className="rounded-xl border border-[#ffd977]/25 bg-white/5 px-4 py-3"
                     >
-                      <p className="font-bold text-[#ffd977]">{d.display_name}</p>
+                      <p className="display text-[17px] font-bold text-[#ffd977]">{d.display_name}</p>
                       <p className="mt-0.5 text-sm text-white/70">{d.prize}</p>
                       <button
                         type="button"

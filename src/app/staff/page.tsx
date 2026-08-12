@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { requireStaff } from '@/lib/auth'
+import { KasavuBand } from '@/components/onam'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,7 +10,7 @@ export default async function StaffHome() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-black">Hi {staff.name.split(' ')[0]}</h1>
+        <h1 className="display text-[26px] leading-[34px]">Hi {staff.name.split(' ')[0]}</h1>
         <p className="text-black/60">
           Signed in as <strong>{staff.role}</strong>
         </p>
@@ -42,20 +43,23 @@ export default async function StaffHome() {
         📖 How to do this
       </Link>
 
-      <div className="card text-sm leading-relaxed text-black/70">
-        <p className="font-bold text-[var(--foreground)]">Quick reminder</p>
-        <p className="mt-1">
-          Scanning shows the family&apos;s live balance. Ask how many people are entering
-          <em> right now</em>, tap that number, and wait for the green screen before letting
-          them through. Never admit someone from a screenshot alone.
-        </p>
-        <p className="mt-2">
-          Full instructions for the desk and the scanner are in{' '}
-          <Link href="/staff/help" className="font-semibold underline">
-            How to do this
-          </Link>
-          .
-        </p>
+      <div className="card-banded">
+        <KasavuBand height={5} />
+        <div className="p-5 text-sm leading-relaxed text-black/70">
+          <p className="font-extrabold text-[var(--foreground)]">Quick reminder</p>
+          <p className="mt-1">
+            Scanning shows the family&apos;s live balance. Ask how many people are entering
+            <em> right now</em>, tap that number, and wait for the green screen before letting
+            them through. Never admit someone from a screenshot alone.
+          </p>
+          <p className="mt-2">
+            Full instructions for the desk and the scanner are in{' '}
+            <Link href="/staff/help" className="font-bold text-[var(--green)] underline">
+              How to do this
+            </Link>
+            .
+          </p>
+        </div>
       </div>
     </div>
   )

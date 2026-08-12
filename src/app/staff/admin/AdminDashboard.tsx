@@ -5,6 +5,7 @@ import Link from 'next/link'
 import type { Household } from '@/lib/households'
 import type { AdminStats, OpsItem, OpsState } from './stats'
 import { StatusPill } from '@/components/StatusPill'
+import { KasavuBand } from '@/components/onam'
 import { HouseholdPanel } from './HouseholdPanel'
 import { ago, clock, humanize } from './format'
 
@@ -67,7 +68,7 @@ export function AdminDashboard({ initial }: { initial: AdminStats }) {
       {/* ---------------- operational status ---------------- */}
       <section>
         <div className="flex flex-wrap items-baseline gap-x-3">
-          <h2 className="text-lg font-black">System status</h2>
+          <h2 className="display text-xl leading-7">System status</h2>
           <span className="text-sm text-black/55" suppressHydrationWarning>
             checked {clock(stats.generatedAt)}
           </span>
@@ -87,7 +88,7 @@ export function AdminDashboard({ initial }: { initial: AdminStats }) {
 
       {/* ---------------- totals ---------------- */}
       <section>
-        <h2 className="text-lg font-black">Sadhya numbers</h2>
+        <h2 className="display text-xl leading-7">Sadhya numbers</h2>
         <div className="mt-2 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <Stat label="Households" value={t.households} />
           <Stat label="Admissions sold" value={t.ticketsSold} />
@@ -124,7 +125,7 @@ export function AdminDashboard({ initial }: { initial: AdminStats }) {
             stats.openReviews > 0 ? 'border-2 border-[var(--warn)] bg-[var(--warn-bg)]' : ''
           }`}
         >
-          <span className="text-3xl font-black tabular-nums">{stats.openReviews}</span>
+          <span className="display text-[32px] leading-[38px] tabular-nums">{stats.openReviews}</span>
           <span>
             <span className="block font-bold">
               {stats.openReviews > 0 ? 'Things need a decision' : 'Nothing needs a decision'}
@@ -138,7 +139,7 @@ export function AdminDashboard({ initial }: { initial: AdminStats }) {
             stats.emailFailures > 0 ? 'border-2 border-[var(--danger)]' : ''
           }`}
         >
-          <span className="text-3xl font-black tabular-nums">{stats.emailFailures}</span>
+          <span className="display text-[32px] leading-[38px] tabular-nums">{stats.emailFailures}</span>
           <span>
             <span className="block font-bold">
               {stats.emailFailures > 0 ? 'Passes never arrived' : 'All pass emails delivered'}
@@ -155,13 +156,13 @@ export function AdminDashboard({ initial }: { initial: AdminStats }) {
       {/* ---------------- recent activity ---------------- */}
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="card">
-          <h2 className="text-lg font-black">Latest check-ins</h2>
+          <h2 className="display text-xl leading-7">Latest check-ins</h2>
           {stats.recentRedemptions.length === 0 ? (
             <p className="mt-2 text-sm text-black/60">Nobody has been checked in yet.</p>
           ) : (
             <ul className="mt-3 space-y-2">
               {stats.recentRedemptions.map((r) => (
-                <li key={r.id} className="border-b border-black/5 pb-2 last:border-0">
+                <li key={r.id} className="border-b border-[var(--line)] pb-2 last:border-0">
                   <button
                     type="button"
                     onClick={() => setSelected(r.householdId)}
@@ -191,13 +192,13 @@ export function AdminDashboard({ initial }: { initial: AdminStats }) {
         </div>
 
         <div className="card">
-          <h2 className="text-lg font-black">Newest registrations</h2>
+          <h2 className="display text-xl leading-7">Newest registrations</h2>
           {stats.recentRegistrations.length === 0 ? (
             <p className="mt-2 text-sm text-black/60">No households yet.</p>
           ) : (
             <ul className="mt-3 space-y-2">
               {stats.recentRegistrations.map((r) => (
-                <li key={r.id} className="border-b border-black/5 pb-2 last:border-0">
+                <li key={r.id} className="border-b border-[var(--line)] pb-2 last:border-0">
                   <button
                     type="button"
                     onClick={() => setSelected(r.id)}
@@ -222,19 +223,22 @@ export function AdminDashboard({ initial }: { initial: AdminStats }) {
       </section>
 
       {/* ---------------- contingency ---------------- */}
-      <section className="card">
-        <h2 className="text-lg font-black">Before the event</h2>
-        <p className="mt-1 text-sm text-black/70">
-          Print the paper roster the night before. If the venue loses signal entirely, that sheet is
-          the only way to check people in.
-        </p>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <Link href="/staff/admin/roster" className="btn-gold">
-            🖨 Paper roster
-          </Link>
-          <a href="/api/staff/admin/export" className="btn-neutral">
-            ⬇ Download spreadsheet
-          </a>
+      <section className="card-banded">
+        <KasavuBand height={5} />
+        <div className="p-5">
+          <h2 className="display text-xl leading-7">Before the event</h2>
+          <p className="mt-1 text-sm text-black/70">
+            Print the paper roster the night before. If the venue loses signal entirely, that
+            sheet is the only way to check people in.
+          </p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <Link href="/staff/admin/roster" className="btn-gold">
+              🖨 Paper roster
+            </Link>
+            <a href="/api/staff/admin/export" className="btn-neutral">
+              ⬇ Download spreadsheet
+            </a>
+          </div>
         </div>
       </section>
 
@@ -291,8 +295,8 @@ function EmergencyLookup({
   }, [term])
 
   return (
-    <section className="rounded-2xl border-4 border-[var(--green)] bg-white p-4 shadow-sm">
-      <h1 className="text-xl font-black">Find someone fast</h1>
+    <section className="rounded-2xl border-4 border-[var(--green)] bg-[var(--card)] p-4 shadow-[0_6px_18px_-12px_rgba(18,74,51,0.5)]">
+      <h1 className="display text-[22px] leading-[30px]">Find someone fast</h1>
       <p className="mt-1 text-sm text-black/70">
         QR not working? Type any part of their name, email or phone.
       </p>
@@ -320,7 +324,7 @@ function EmergencyLookup({
               <button
                 type="button"
                 onClick={() => onSelect(selected === h.id ? null : h.id)}
-                className="w-full rounded-xl border-2 border-black/10 bg-white p-4 text-left active:scale-[0.99]"
+                className="w-full rounded-xl border-2 border-[var(--line)] bg-[var(--card)] p-4 text-left transition hover:bg-[var(--cream)] active:scale-[0.99]"
               >
                 <span className="block text-lg font-bold break-words">{h.display_name}</span>
                 <span className="mt-1 flex flex-wrap items-center gap-2">
@@ -362,7 +366,7 @@ const OPS_STYLE: Record<OpsState, { icon: string; word: string; className: strin
   ok: { icon: '✓', word: 'OK', className: 'border-[var(--ok)] bg-[var(--ok-bg)]' },
   warn: { icon: '!', word: 'CHECK THIS', className: 'border-[var(--warn)] bg-[var(--warn-bg)]' },
   bad: { icon: '✕', word: 'BROKEN', className: 'border-[var(--danger)] bg-[var(--danger-bg)]' },
-  idle: { icon: '·', word: 'NOT STARTED', className: 'border-black/15 bg-white' },
+  idle: { icon: '·', word: 'NOT STARTED', className: 'border-[var(--line-strong)] bg-[var(--card)]' },
 }
 
 function OpsRow({ item }: { item: OpsItem }) {
@@ -395,10 +399,14 @@ function Stat({
       ? 'bg-[var(--ok-bg)] text-[var(--ok)]'
       : tone === 'gold'
         ? 'bg-[var(--cream)] text-[var(--gold-deep)]'
-        : 'bg-white'
+        : 'bg-[var(--card)]'
+  const border =
+    tone === 'ok'
+      ? 'border-[rgba(20,113,63,0.35)]'
+      : 'border-[var(--line-strong)]'
   return (
-    <div className={`rounded-2xl border border-black/10 p-4 shadow-sm ${bg}`}>
-      <div className="text-3xl font-black tabular-nums">{value}</div>
+    <div className={`rounded-2xl border p-4 ${border} ${bg}`}>
+      <div className="display text-[32px] leading-[38px] tabular-nums">{value}</div>
       <div className="text-sm font-semibold text-black/65">{label}</div>
     </div>
   )
@@ -413,7 +421,7 @@ function BreakdownCard({
 }) {
   return (
     <div className="card">
-      <h2 className="text-lg font-black">{title}</h2>
+      <h2 className="display text-xl leading-7">{title}</h2>
       {rows.length === 0 ? (
         <p className="mt-2 text-sm text-black/60">Nothing recorded yet.</p>
       ) : (
@@ -427,7 +435,7 @@ function BreakdownCard({
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.key} className="border-t border-black/5">
+              <tr key={r.key} className="border-t border-[var(--line)]">
                 <td className="py-1.5 font-semibold">{humanize(r.key)}</td>
                 <td className="py-1.5 text-right tabular-nums">{r.households}</td>
                 <td className="py-1.5 text-right tabular-nums">{r.tickets}</td>

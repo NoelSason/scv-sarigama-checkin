@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { currentStaff } from '@/lib/auth'
+import { KasavuRule, Lamp } from '@/components/onam'
 import { signInAction } from '../actions'
 
 export const dynamic = 'force-dynamic'
@@ -15,10 +16,13 @@ export default async function LoginPage({
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center px-6 py-10">
       <header className="text-center">
-        <p className="text-sm font-bold uppercase tracking-[0.2em] text-[var(--gold-deep)]">
+        <Lamp glow className="mx-auto" />
+        <p className="mt-2 text-xs font-black uppercase tracking-[0.28em] text-[var(--gold-deep)]">
           SCV Sarigama
         </p>
-        <h1 className="mt-1 text-3xl font-black text-[var(--green-deep)]">Onam Check-In</h1>
+        <h1 className="display mt-0.5 text-[2rem] leading-[1.15] text-[var(--green-deep)]">
+          Onam Check-In
+        </h1>
         <p className="mt-2 text-black/60">Enter the volunteer password</p>
       </header>
 
@@ -55,6 +59,8 @@ export default async function LoginPage({
       <p className="mt-8 text-center text-sm text-black/50">
         You&apos;ll stay signed in on this phone. Ask the event admin for the password.
       </p>
+
+      <KasavuRule className="mt-9" />
     </main>
   )
 }

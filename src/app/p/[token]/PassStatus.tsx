@@ -54,18 +54,18 @@ export function PassStatus({
 
   return (
     <section className="mt-6 text-center">
-      <p className="text-sm font-bold uppercase tracking-widest text-black/50">
+      <p className="text-xs font-black uppercase tracking-[0.22em] text-black/50">
         Sadhya admissions
       </p>
 
       <p
-        className={`mt-2 text-6xl font-black tabular-nums ${
+        className={`display mt-2 text-[64px] leading-none tabular-nums ${
           remaining === 0 ? 'text-black/35' : 'text-[var(--green-deep)]'
         }`}
       >
         {remaining}
       </p>
-      <p className="mt-1 text-lg font-semibold">
+      <p className="mt-1 text-lg font-bold">
         {remaining === 1 ? 'admission left' : 'admissions left'}
       </p>
       <p className="mt-1 text-sm text-black/55">
