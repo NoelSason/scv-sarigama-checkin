@@ -26,13 +26,24 @@ async function main() {
     payment_status: string
     amount_paid_cents: number | null
   }>(
+    // Deliberately NOT filtered on locked_at. A row can be locked and still
+    // wrong: these five were accepted once, then the sheet sync overwrote the
+    // status back to needs_review before the code that honours the lock was
+    // deployed. Skipping locked rows made the script report "nothing to do"
+    // while five people sat unsendable.
+    //
+    // partially_refunded is included when admissions remain: the guest paid,
+    // some money went back, and the tickets they kept are valid. A full
+    // 'refunded' is never picked up here.
     `select id, display_name, email, tickets_purchased,
             payment_status::text as payment_status, amount_paid_cents
        from households
       where not is_test
         and merged_into_id is null
-        and locked_at is null
-        and payment_status = 'needs_review'
+        and (
+          payment_status = 'needs_review'
+          or (payment_status = 'partially_refunded' and tickets_purchased > 0)
+        )
       order by tickets_purchased desc`,
   )
 
@@ -54,7 +65,11 @@ async function main() {
       `update households
           set payment_status = 'paid'::payment_status,
               locked_at      = now(),
-              locked_reason  = 'amount mismatch accepted by organizer (overpayment / donation)'
+              locked_reason  = case
+                when payment_status = 'partially_refunded'
+                  then 'partially refunded; the admissions still held are valid'
+                else 'amount mismatch accepted by organizer (overpayment / donation)'
+              end
         where id = $1`,
       [r.id],
     )
