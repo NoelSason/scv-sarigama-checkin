@@ -52,13 +52,23 @@ function setUp() {
 }
 
 /** Run this ONCE. Sets up a 5-minute timer plus an on-edit trigger. */
+/**
+ * Every handler this script installs. Listed in one place because the cleanup
+ * below has to match it exactly: a handler that gets created but not cleared
+ * ends up with a second copy on the next run, and two `autoContactsSync` timers
+ * firing together means two pushes and two refreshes racing on the same tab.
+ */
+var MANAGED_TRIGGERS = ['syncNow', 'onSheetEdit', 'autoContactsSync', 'pullAnalytics'];
+
 function installTrigger() {
   var ss = SpreadsheetApp.getActive();
 
-  // Clear any previous triggers so running this twice doesn't double up.
+  // Safe to run as often as you like: everything we own is cleared first.
+  var removed = 0;
   ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'syncNow' || t.getHandlerFunction() === 'onSheetEdit') {
+    if (MANAGED_TRIGGERS.indexOf(t.getHandlerFunction()) > -1) {
       ScriptApp.deleteTrigger(t);
+      removed++;
     }
   });
 
@@ -69,8 +79,22 @@ function installTrigger() {
 
   Browser.msgBox(
     'Sync installed.\n\n' +
-      'Form Responses reaches the app within a few minutes of any edit.\n' +
-      'The ' + CONTACTS_TAB + ' tab now keeps itself up to date on its own.'
+      (removed ? 'Replaced ' + removed + ' existing trigger(s).\n\n' : '') +
+      'Every 5 minutes, on their own:\n' +
+      '  · Form Responses  ->  the app (also instantly on edit)\n' +
+      '  · ' + CONTACTS_TAB + '  ->  emails sent, then tab rebuilt\n' +
+      '  · ' + ANALYTICS_TAB + '  ->  new events appended'
+  );
+}
+
+/** Shows what is actually installed, for when you want to be sure. */
+function listTriggers() {
+  var lines = ScriptApp.getProjectTriggers().map(function (t) {
+    return '  · ' + t.getHandlerFunction();
+  });
+  Browser.msgBox(
+    lines.length ? lines.length + ' trigger(s) installed:\n\n' + lines.join('\n')
+                 : 'No triggers installed — run installTrigger().'
   );
 }
 
@@ -114,6 +138,8 @@ function onOpen() {
     .addItem('Send filled-in emails to app', 'pushContacts')
     .addSeparator()
     .addItem('Update event analytics', 'refreshAnalytics')
+    .addSeparator()
+    .addItem('Show installed triggers', 'listTriggers')
     .addToUi();
 }
 
