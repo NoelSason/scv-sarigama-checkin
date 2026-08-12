@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
-import { currentStaff, signInShared } from '@/lib/auth'
+import { currentStaff } from '@/lib/auth'
+import { signInAction } from '../actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,14 +12,6 @@ export default async function LoginPage({
   const { error } = await searchParams
   if (await currentStaff()) redirect('/staff')
 
-  async function action(formData: FormData) {
-    'use server'
-    const password = String(formData.get('password') ?? '')
-    const result = await signInShared(password)
-    if (!result.ok) redirect(`/staff/login?error=${encodeURIComponent(result.error)}`)
-    redirect('/staff')
-  }
-
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center px-6 py-10">
       <header className="text-center">
@@ -29,7 +22,7 @@ export default async function LoginPage({
         <p className="mt-2 text-black/60">Enter the volunteer password</p>
       </header>
 
-      <form action={action} className="mt-8 space-y-4">
+      <form action={signInAction} className="mt-8 space-y-4">
         <div>
           <label htmlFor="password" className="mb-1 block font-semibold">
             Password

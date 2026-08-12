@@ -1,18 +1,12 @@
 import Link from 'next/link'
-import { redirect } from 'next/navigation'
-import { currentStaff, signOut } from '@/lib/auth'
+import { currentStaff } from '@/lib/auth'
 import { ConnectionBanner } from '@/components/ConnectionBanner'
+import { signOutAction } from './actions'
 
 export const dynamic = 'force-dynamic'
 
 export default async function StaffLayout({ children }: { children: React.ReactNode }) {
   const staff = await currentStaff()
-
-  async function doSignOut() {
-    'use server'
-    await signOut()
-    redirect('/staff/login')
-  }
 
   // The login page renders inside this layout too; it has no chrome of its own.
   if (!staff) return <>{children}</>
@@ -64,7 +58,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
             >
               Help
             </Link>
-            <form action={doSignOut}>
+            <form action={signOutAction}>
               <button
                 type="submit"
                 title="Sign out"
