@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 import QRCode from 'qrcode'
-import { findByToken, passUrl } from '@/lib/households'
+import { findByToken, logAuditThrottled, passUrl } from '@/lib/households'
+import { requestContext } from '@/lib/request-context'
 import {
   Greeting,
   KasavuBand,
@@ -27,6 +28,29 @@ export default async function PassPage({ params }: { params: Promise<{ token: st
   const { token } = await params
   const household = await findByToken(token)
   if (!household) notFound()
+
+  // Every time a guest opens their pass: address, approximate location, browser,
+  // and which pass. Throttled to one entry per address per five minutes, because
+  // the page polls itself and an open tab would otherwise write a row every
+  // thirty seconds.
+  //
+  // The token is deliberately not recorded — it is the credential that opens the
+  // pass, and the audit trail is read by more people than the pass table is.
+  const ctx = await requestContext()
+  await logAuditThrottled(
+    'pass_opened',
+    `${household.id}:${ctx.ip ?? 'unknown'}`,
+    300,
+    {
+      actorType: 'guest',
+      householdId: household.id,
+      metadata: {
+        guest: household.display_name,
+        remaining: household.tickets_remaining,
+        purchased: household.tickets_purchased,
+      },
+    },
+  )
 
   const url = passUrl(household.pass_token)
 

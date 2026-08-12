@@ -80,17 +80,30 @@ export async function searchHouseholds(term: string, limit = 25): Promise<Househ
   const phone = normalizePhone(raw)
   const name = normalizeName(raw)
 
+  // Two exclusions, both about what a volunteer sees at the desk with a queue
+  // behind them:
+  //
+  //   is_test          — rehearsal records look identical to real ones in the
+  //                      result list. Redeeming against one lets a family
+  //                      through against a pass nobody paid for. Test passes are
+  //                      still reachable by scanning their QR, which is how
+  //                      rehearsal actually works.
+  //   merged_into_id   — the absorbed half of a merged purchase. It shows the
+  //                      same name with 0 admissions, so the volunteer has to
+  //                      guess which of two identical entries is the real one.
   return query<Household>(
     `select ${COLUMNS}
        from households
-      where display_name ilike '%' || $1 || '%'
+      where not is_test
+        and merged_into_id is null
+        and (display_name ilike '%' || $1 || '%'
          or similarity(lower(display_name), $2) > 0.3
          or normalized_email = $3
          or email ilike '%' || $1 || '%'
          or normalized_phone = $4
          or phone like '%' || $1 || '%'
          or square_order_id = $1
-         or source_record_id = $1
+         or source_record_id = $1)
       order by
         (lower(display_name) = $2) desc,
         similarity(lower(display_name), $2) desc,
@@ -197,6 +210,47 @@ export async function logAudit(
   } catch (err) {
     console.error(`[audit] failed to record "${action}":`, err)
   }
+}
+
+/**
+ * Record an event at most once per window for a given key.
+ *
+ * Guests leave the pass page open and it polls itself; a phone on a table would
+ * otherwise write a row every thirty seconds and bury the events that matter
+ * under thousands of its own heartbeats. One row per person per window keeps
+ * "who opened this pass, from where" answerable and readable.
+ */
+export async function logAuditThrottled(
+  action: string,
+  throttleKey: string,
+  windowSeconds: number,
+  opts: {
+    actorType?: string
+    actorId?: string | null
+    householdId?: string | null
+    metadata?: Record<string, unknown>
+  } = {},
+): Promise<void> {
+  try {
+    const recent = await queryOne<{ exists: boolean }>(
+      `select exists(
+         select 1 from audit_logs
+          where action = $1
+            and metadata->>'throttleKey' = $2
+            and created_at > now() - ($3 || ' seconds')::interval
+       ) as exists`,
+      [action, throttleKey, windowSeconds],
+    )
+    if (recent?.exists) return
+  } catch {
+    // If the check fails, log anyway. A duplicate row is a far smaller problem
+    // than a missing one in a security trail.
+  }
+
+  await logAudit(action, {
+    ...opts,
+    metadata: { ...(opts.metadata ?? {}), throttleKey },
+  })
 }
 
 export type RedeemResult = {
