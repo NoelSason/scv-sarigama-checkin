@@ -350,6 +350,23 @@ export async function syncSheet(options: SyncOptions = {}): Promise<SyncSummary>
     }
 
     await finishSyncRun(syncRunId, 'ok', summary)
+
+    // Zelle rows arrive here rather than through a webhook, and an address may
+    // also turn up long after the payment did — someone types it into the
+    // contacts tab days later. Asking "who is owed a pass?" after every
+    // committed sync covers both without either needing its own hook.
+    //
+    // Never allowed to fail the sync: the payment record landing is what
+    // matters, and an unsent pass is picked up by the next run five minutes
+    // later.
+    if (!dryRun) {
+      const { dispatchPendingPassesSafely } = await import('@/lib/email/dispatch')
+      const dispatched = await dispatchPendingPassesSafely('sheet-sync')
+      if (dispatched.sent > 0) {
+        console.log(`[sheet-sync] mailed ${dispatched.sent} new pass(es)`)
+      }
+    }
+
     return summary
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

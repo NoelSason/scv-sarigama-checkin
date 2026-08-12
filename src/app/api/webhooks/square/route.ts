@@ -12,6 +12,7 @@ import {
   type Entitlement,
 } from '@/lib/square'
 import { generatePassToken, normalizeEmail, normalizePhone } from '@/lib/tokens'
+import { dispatchPendingPassesSafely } from '@/lib/email/dispatch'
 
 /**
  * Square webhook receiver.
@@ -178,7 +179,13 @@ export async function POST(req: Request) {
     })
   }
 
-  return NextResponse.json({ ok: true })
+  // A card sale is the one moment a guest is definitely sitting with their phone
+  // out, so mail the pass now rather than leaving them to wonder. Runs after the
+  // event is marked processed: a failure here must never make Square retry a
+  // payment we have already recorded.
+  const dispatched = await dispatchPendingPassesSafely(`square:${eventType}`)
+
+  return NextResponse.json({ ok: true, passesSent: dispatched.sent })
 }
 
 async function markProcessed(
