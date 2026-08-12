@@ -176,11 +176,25 @@ export function Scanner({ staffName }: { staffName: string }) {
           />
         )}
 
+        {/* html5-qrcode owns the <video> inside here, and its geometry must not
+            be touched.
+
+            It sets only style.width, letting height follow the stream's aspect
+            ratio, and then builds its decode canvas at clientWidth ×
+            clientHeight and blits the frame into it. Forcing h-full/object-cover
+            made that canvas container-shaped while the frame stayed 720×1280, so
+            drawImage squashed it about 2× vertically. A QR whose modules are no
+            longer square cannot be decoded by anything — which looked exactly
+            like a dead scanner.
+
+            So the video keeps its natural size and the CONTAINER does the
+            cropping: flex centres it, overflow-hidden trims the excess. Same
+            look as object-cover, without lying to the decoder about its shape. */}
         <div
           id="qr-fallback-region"
           className={
             backend === 'fallback'
-              ? 'h-[42dvh] max-h-[520px] min-h-[240px] w-full [&_video]:h-full [&_video]:w-full [&_video]:object-cover'
+              ? 'flex max-h-[46dvh] w-full items-center justify-center overflow-hidden [&_video]:shrink-0'
               : 'hidden'
           }
         />

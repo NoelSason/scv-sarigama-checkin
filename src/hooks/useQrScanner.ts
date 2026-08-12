@@ -216,7 +216,10 @@ export function useQrScanner({
             setDiag((d) => ({
               ...d,
               misses: missCountRef.current,
-              video: v ? `${v.videoWidth}x${v.videoHeight}` : 'no video',
+              // Frame shape and displayed shape. These two ratios must match:
+              // when they diverge the decode canvas is squashing the code and
+              // nothing will ever read, however good the camera looks.
+              video: v ? `${v.videoWidth}x${v.videoHeight}→${v.clientWidth}x${v.clientHeight}` : 'no video',
             }))
           }
         },
