@@ -12,13 +12,13 @@
  * type. That guard lives in the provider and this script cannot reach past it.
  */
 import { testRedirectTarget } from '@/lib/email/provider'
+import { QR_CID, renderPassQr } from '@/lib/email/qr'
 import { createResendProvider } from '@/lib/email/resend'
 import { renderPassEmail } from '@/lib/email/templates'
 
 const SAMPLE = {
   display_name: 'Kavitha Raveendra Raja',
   tickets_purchased: 4,
-  children_under_6: 2,
 }
 
 function usage(message: string): never {
@@ -35,9 +35,12 @@ async function main() {
   const base = process.env.APP_BASE_URL?.replace(/\/$/, '') ?? 'http://localhost:3000'
   const href = `${base}/p/SAMPLE-TOKEN-NOT-A-REAL-PASS`
 
+  const qr = await renderPassQr(href)
+
   const redirect = testRedirectTarget()
   console.log(`from:     ${process.env.EMAIL_FROM ?? '(EMAIL_FROM unset — provider default)'}`)
   console.log(`to:       ${to}`)
+  console.log(`qr:       ${qr ? `embedded as cid:${QR_CID}` : 'FAILED — sending link-only'}`)
   if (redirect) {
     console.log(`redirect: EMAIL_TEST_REDIRECT is set — this will arrive at ${redirect}`)
   } else {
@@ -45,7 +48,11 @@ async function main() {
   }
   console.log('')
 
-  const message = { to, ...renderPassEmail(SAMPLE, href) }
+  const message = {
+    to,
+    ...renderPassEmail(SAMPLE, href, { qrCid: qr ? QR_CID : null }),
+    attachments: qr ? [qr] : undefined,
+  }
   const result = await createResendProvider().send(message)
 
   if (result.ok) {

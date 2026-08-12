@@ -16,7 +16,16 @@
 
 var ENDPOINT = 'https://checkin.scvsarigama.com/api/sync/sheet-push';
 var WALKINS_ENDPOINT = 'https://checkin.scvsarigama.com/api/sync/walkins';
+var CONTACTS_ENDPOINT = 'https://checkin.scvsarigama.com/api/sync/contacts';
 var TAB_NAME = 'Form Responses 1';
+
+/**
+ * The contacts tab. Its own sheet, never the payments ledger: the ledger holds
+ * Zelle rows only, so the addresses we already have — every card buyer — would
+ * have nowhere to sit, and the importer resolves ledger columns by matching
+ * header text, so a new column there can quietly capture a field it needs.
+ */
+var CONTACTS_TAB = 'Pass Contacts';
 
 /**
  * Run this ONCE and paste the secret when prompted.
@@ -56,7 +65,179 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('Check-in')
     .addItem('Sync now', 'syncNowWithAlert')
+    .addSeparator()
+    .addItem('Refresh contacts tab', 'refreshContacts')
+    .addItem('Send filled-in emails to app', 'pushContacts')
     .addToUi();
+}
+
+// ---------------------------------------------------------------------------
+// Contacts tab
+//
+// Two buttons, one loop: refresh pulls everyone the app knows about into a
+// tab, a human types the missing addresses, push sends them back.
+// ---------------------------------------------------------------------------
+
+/**
+ * Rebuild the contacts tab from the app.
+ *
+ * Anything typed in the Email column is carried across the rebuild — the whole
+ * point of the tab is addresses a human entered, and losing them to a refresh
+ * would be the one unforgivable bug here. Rows are matched on REF, not on
+ * position, so a re-sorted or re-grouped tab still keeps its typing.
+ */
+function refreshContacts() {
+  var props = PropertiesService.getScriptProperties();
+  var secret = props.getProperty('CHECKIN_SECRET');
+  if (!secret) {
+    Browser.msgBox('Not set up — run setUp() first.');
+    return;
+  }
+
+  var res = UrlFetchApp.fetch(CONTACTS_ENDPOINT, {
+    method: 'get',
+    headers: { Authorization: 'Bearer ' + secret },
+    muteHttpExceptions: true,
+  });
+
+  if (res.getResponseCode() !== 200) {
+    Browser.msgBox('Could not load contacts: ' + res.getContentText());
+    return;
+  }
+
+  var data = JSON.parse(res.getContentText());
+  var values = data.values;
+  var ss = SpreadsheetApp.getActive();
+  var sheet = ss.getSheetByName(CONTACTS_TAB);
+
+  // Preserve anything already typed, keyed by REF.
+  var typed = {};
+  if (sheet && sheet.getLastRow() > 1) {
+    var old = sheet.getDataRange().getDisplayValues();
+    var oldHeader = old[0];
+    var oldEmail = indexOfHeader(oldHeader, 'Email');
+    var oldRef = indexOfHeaderPrefix(oldHeader, 'REF');
+    if (oldEmail > -1 && oldRef > -1) {
+      for (var r = 1; r < old.length; r++) {
+        var ref = String(old[r][oldRef] || '').trim();
+        var addr = String(old[r][oldEmail] || '').trim();
+        if (ref && addr) typed[ref] = addr;
+      }
+    }
+  }
+
+  var emailCol = indexOfHeader(values[0], 'Email');
+  var refCol = indexOfHeaderPrefix(values[0], 'REF');
+  var restored = 0;
+  for (var i = 1; i < values.length; i++) {
+    var key = String(values[i][refCol] || '').trim();
+    if (!values[i][emailCol] && typed[key]) {
+      values[i][emailCol] = typed[key];
+      restored++;
+    }
+  }
+
+  if (!sheet) sheet = ss.insertSheet(CONTACTS_TAB);
+  sheet.clear();
+  sheet.getRange(1, 1, values.length, values[0].length).setValues(values);
+
+  formatContacts(sheet, values.length, values[0].length, emailCol, refCol);
+
+  Browser.msgBox(
+    'Contacts refreshed.\n\n' +
+      data.stats.people + ' people (' + data.stats.households + ' purchases)\n' +
+      data.stats.missingEmail + ' still need an email\n' +
+      data.stats.duplicateGroups + ' bought more than once\n' +
+      (restored ? restored + ' typed-in addresses carried over\n' : '') +
+      '\nFill the yellow Email cells, then: Check-in → Send filled-in emails to app.'
+  );
+}
+
+/** Header row frozen, email column highlighted, REF pushed out of the way. */
+function formatContacts(sheet, rows, cols, emailCol, refCol) {
+  sheet.setFrozenRows(1);
+  sheet.getRange(1, 1, 1, cols).setFontWeight('bold').setBackground('#124a33').setFontColor('#ffffff');
+
+  if (rows > 1 && emailCol > -1) {
+    var emailRange = sheet.getRange(2, emailCol + 1, rows - 1, 1);
+    emailRange.setBackground('#FFF6DF');
+    // Only the blanks are the job; a filled cell is not asking for attention.
+    var blanks = SpreadsheetApp.newConditionalFormatRule()
+      .whenCellEmpty()
+      .setBackground('#FDE9A9')
+      .setRanges([emailRange])
+      .build();
+    sheet.setConditionalFormatRules([blanks]);
+  }
+
+  for (var c = 1; c <= cols; c++) sheet.autoResizeColumn(c);
+  if (refCol > -1) {
+    // Long uuid lists; keep them narrow and greyed so nobody feels invited to
+    // edit the one column that must survive untouched.
+    sheet.setColumnWidth(refCol + 1, 90);
+    if (rows > 1) sheet.getRange(2, refCol + 1, rows - 1, 1).setFontColor('#b0aca0');
+  }
+}
+
+/** Send the filled-in addresses back to the app. */
+function pushContacts() {
+  var props = PropertiesService.getScriptProperties();
+  var secret = props.getProperty('CHECKIN_SECRET');
+  if (!secret) {
+    Browser.msgBox('Not set up — run setUp() first.');
+    return;
+  }
+
+  var sheet = SpreadsheetApp.getActive().getSheetByName(CONTACTS_TAB);
+  if (!sheet) {
+    Browser.msgBox('No "' + CONTACTS_TAB + '" tab yet — run "Refresh contacts tab" first.');
+    return;
+  }
+
+  var values = sheet.getDataRange().getDisplayValues();
+  var res = UrlFetchApp.fetch(CONTACTS_ENDPOINT, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + secret },
+    payload: JSON.stringify({ values: values, commit: true }),
+    muteHttpExceptions: true,
+  });
+
+  if (res.getResponseCode() !== 200) {
+    Browser.msgBox('Send failed: ' + res.getContentText());
+    return;
+  }
+
+  var out = JSON.parse(res.getContentText());
+  var message = out.filled + ' email(s) saved.\n' + out.unchanged + ' already on file.';
+  if (out.invalid && out.invalid.length) {
+    message += '\n\nNot an email address (' + out.invalid.length + '):';
+    for (var i = 0; i < Math.min(out.invalid.length, 5); i++) {
+      message += '\n  ' + out.invalid[i].name + ': ' + out.invalid[i].offered;
+    }
+  }
+  if (out.conflicts && out.conflicts.length) {
+    // Left alone on purpose: a typo here must not redirect someone's pass.
+    message += '\n\nAlready had a different address, left unchanged (' + out.conflicts.length + '):';
+    for (var j = 0; j < Math.min(out.conflicts.length, 5); j++) {
+      message += '\n  ' + out.conflicts[j].name + ': kept ' + out.conflicts[j].existing;
+    }
+  }
+  Browser.msgBox(message);
+}
+
+function indexOfHeader(header, name) {
+  for (var i = 0; i < header.length; i++) {
+    if (String(header[i]).trim().toLowerCase() === name.toLowerCase()) return i;
+  }
+  return -1;
+}
+
+function indexOfHeaderPrefix(header, prefix) {
+  for (var i = 0; i < header.length; i++) {
+    if (String(header[i]).trim().toUpperCase().indexOf(prefix.toUpperCase()) === 0) return i;
+  }
+  return -1;
 }
 
 /**

@@ -1,0 +1,209 @@
+import { timingSafeEqual } from 'node:crypto'
+import { NextResponse } from 'next/server'
+import { z } from 'zod'
+import { query } from '@/lib/db'
+import { loadHouseholdGroups } from '@/lib/duplicates'
+import { logAudit } from '@/lib/households'
+import { normalizeEmail } from '@/lib/tokens'
+
+export const dynamic = 'force-dynamic'
+export const maxDuration = 60
+
+/**
+ * The contacts tab: one row per person, for collecting the addresses we don't
+ * have.
+ *
+ * A separate tab from the payments ledger, deliberately. The ledger holds Zelle
+ * rows only, so most of the addresses we already know — every Square buyer —
+ * have no row there to sit in. And the importer resolves ledger columns by
+ * matching header substrings, so adding columns to that tab risks a new header
+ * quietly capturing a field the parser needs.
+ *
+ * GET  hands the Apps Script the grid to write.
+ * POST takes the grid back after a human has filled the blanks.
+ */
+
+function authorized(req: Request): boolean {
+  const secret = process.env.CRON_SECRET
+  if (!secret) return false
+  const offered = (req.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '')
+  const a = Buffer.from(offered)
+  const b = Buffer.from(secret)
+  return a.length === b.length && timingSafeEqual(a, b)
+}
+
+/**
+ * Column order is the contract between this route and the Apps Script. Email
+ * sits second because it is the one column a human is here to type.
+ *
+ * REF is last and holds the household ids. It is how a filled-in address finds
+ * its way home: names get retyped and rows get re-sorted, so neither can be an
+ * identifier.
+ */
+export const CONTACT_HEADERS = [
+  'Name',
+  'Email',
+  'Tickets (merged)',
+  'Purchases',
+  'Paid via',
+  'Status',
+  'Duplicate?',
+  'Also known as',
+  'REF — do not edit',
+] as const
+
+const SOURCE_LABELS: Record<string, string> = {
+  google_sheets: 'Zelle / sheet',
+  square: 'Card / Square',
+  walk_in: 'Walk-in',
+  seed: 'Test',
+}
+
+function sourceLabel(sources: Array<string | null>): string {
+  const labels = [...new Set(sources.map((s) => (s && SOURCE_LABELS[s]) || s || 'unknown'))]
+  return labels.join(' + ')
+}
+
+export async function GET(req: Request) {
+  if (!authorized(req)) return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 })
+
+  const groups = await loadHouseholdGroups()
+
+  const values: string[][] = [[...CONTACT_HEADERS]]
+  for (const g of groups) {
+    const duplicate = g.members.length > 1
+    values.push([
+      g.primaryName,
+      g.email ?? '',
+      String(g.mergedTickets),
+      // "5 + 4" reads as two purchases at a glance; a lone "9" would not.
+      g.ticketsByPurchase.join(' + '),
+      sourceLabel(g.members.map((m) => m.source)),
+      [...new Set(g.members.map((m) => m.paymentStatus))].join(' / '),
+      duplicate ? (g.basis === 'email' ? 'Yes — same email' : 'Check — same name') : '',
+      g.nameVariants.join(' / '),
+      g.members.map((m) => m.id).join(','),
+    ])
+  }
+
+  const duplicates = groups.filter((g) => g.members.length > 1)
+  return NextResponse.json(
+    {
+      ok: true,
+      headers: CONTACT_HEADERS,
+      values,
+      stats: {
+        people: groups.length,
+        households: groups.reduce((n, g) => n + g.members.length, 0),
+        missingEmail: groups.filter((g) => !g.email).length,
+        duplicateGroups: duplicates.length,
+        duplicatesByEmail: duplicates.filter((g) => g.basis === 'email').length,
+        duplicatesByName: duplicates.filter((g) => g.basis === 'name').length,
+      },
+    },
+    { headers: { 'Cache-Control': 'no-store' } },
+  )
+}
+
+const Body = z.object({
+  values: z.array(z.array(z.string())).min(1).max(2000),
+  commit: z.boolean().default(true),
+})
+
+type Outcome = {
+  filled: number
+  unchanged: number
+  conflicts: Array<{ name: string; existing: string; offered: string }>
+  invalid: Array<{ name: string; offered: string }>
+  unknownRefs: number
+}
+
+/**
+ * Take the tab back and write the new addresses onto the households.
+ *
+ * Only ever fills a blank. An address already on file — every Square buyer has
+ * one straight from their checkout — is left exactly as it is and reported as a
+ * conflict instead, because a typo in a spreadsheet must not be able to
+ * redirect a pass away from the person who paid for it.
+ */
+export async function POST(req: Request) {
+  if (!authorized(req)) return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 })
+
+  let body: z.infer<typeof Body>
+  try {
+    body = Body.parse(await req.json())
+  } catch (err) {
+    return NextResponse.json(
+      { error: 'INVALID', detail: err instanceof z.ZodError ? err.issues : undefined },
+      { status: 400 },
+    )
+  }
+
+  const header = body.values[0] ?? []
+  const emailCol = header.findIndex((h) => h.trim().toLowerCase() === 'email')
+  const refCol = header.findIndex((h) => h.trim().toUpperCase().startsWith('REF'))
+  const nameCol = header.findIndex((h) => h.trim().toLowerCase() === 'name')
+  if (emailCol === -1 || refCol === -1) {
+    return NextResponse.json(
+      { error: 'BAD_LAYOUT', detail: 'Expected "Email" and "REF" columns in the header row.' },
+      { status: 400 },
+    )
+  }
+
+  const outcome: Outcome = { filled: 0, unchanged: 0, conflicts: [], invalid: [], unknownRefs: 0 }
+
+  for (let i = 1; i < body.values.length; i++) {
+    const row = body.values[i] ?? []
+    const refs = (row[refCol] ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+    if (refs.length === 0) continue
+
+    const raw = (row[emailCol] ?? '').trim()
+    if (!raw) continue
+
+    const name = (row[nameCol] ?? '').trim() || '(unnamed)'
+    const email = normalizeEmail(raw)
+    if (!email) {
+      outcome.invalid.push({ name, offered: raw })
+      continue
+    }
+
+    for (const id of refs) {
+      const existing = await query<{ id: string; email: string | null; display_name: string }>(
+        `select id, email, display_name from households where id = $1 and not is_test`,
+        [id],
+      )
+      if (existing.length === 0) {
+        outcome.unknownRefs++
+        continue
+      }
+
+      const current = existing[0].email?.trim() ?? null
+      if (current && normalizeEmail(current) !== email) {
+        outcome.conflicts.push({ name: existing[0].display_name, existing: current, offered: raw })
+        continue
+      }
+      if (current) {
+        outcome.unchanged++
+        continue
+      }
+
+      if (body.commit) {
+        await query(
+          `update households set email = $2, normalized_email = $3 where id = $1`,
+          [id, raw.trim(), email],
+        )
+        await logAudit('contact_email_filled', {
+          actorType: 'import',
+          householdId: id,
+          metadata: { email: raw.trim(), via: 'contacts tab' },
+        })
+      }
+      outcome.filled++
+    }
+  }
+
+  return NextResponse.json(
+    { ok: true, commit: body.commit, ...outcome },
+    { headers: { 'Cache-Control': 'no-store' } },
+  )
+}

@@ -7,11 +7,25 @@
  * this file knows Resend exists.
  */
 
+/**
+ * An embedded file. `contentId` is what makes the QR appear in the body rather
+ * than as a paperclip: the HTML references it as `cid:<contentId>`, and because
+ * the bytes travel with the message there is no remote image for a client to
+ * block. Data URIs would have been simpler and are stripped by Gmail.
+ */
+export type EmailAttachment = {
+  filename: string
+  content: Buffer
+  contentType: string
+  contentId?: string
+}
+
 export type EmailMessage = {
   to: string
   subject: string
   html: string
   text: string
+  attachments?: EmailAttachment[]
 }
 
 export type EmailResult =
@@ -76,6 +90,9 @@ export function applyTestRedirect(message: EmailMessage): {
   return {
     redirectedTo: target,
     message: {
+      // Attachments ride along unchanged: a redirected test must show the same
+      // embedded QR the guest would have seen, or it tests nothing.
+      ...message,
       to: target,
       subject: `[TEST → ${message.to}] ${message.subject}`,
       html: redirectBannerHtml(message.to) + message.html,
@@ -112,6 +129,13 @@ export function createLogOnlyProvider(reason: string): EmailProvider {
           `[email] NOT SENT (${reason})`,
           `  to:      ${message.to}`,
           `  subject: ${message.subject}`,
+          ...(message.attachments?.length
+            ? [
+                `  files:   ${message.attachments
+                  .map((a) => `${a.filename}${a.contentId ? ` (inline cid:${a.contentId})` : ''}`)
+                  .join(', ')}`,
+              ]
+            : []),
           `  text:`,
           message.text
             .split('\n')

@@ -1,6 +1,7 @@
 import { query, queryOne } from '@/lib/db'
 import { findById, logAudit, passUrl, type Household } from '@/lib/households'
 import type { EmailProvider } from './provider'
+import { QR_CID, renderPassQr } from './qr'
 import { createResendProvider } from './resend'
 import { renderPassEmail } from './templates'
 
@@ -58,7 +59,13 @@ export async function sendPassEmail(household: Household): Promise<SendPassResul
   }
 
   const provider = getEmailProvider()
-  const message = { to, ...renderPassEmail(household, passUrl(household.pass_token)) }
+  const href = passUrl(household.pass_token)
+  const qr = await renderPassQr(href)
+  const message = {
+    to,
+    ...renderPassEmail(household, href, { qrCid: qr ? QR_CID : null }),
+    attachments: qr ? [qr] : undefined,
+  }
 
   const row = await queryOne<{ id: string }>(
     `insert into email_deliveries (household_id, to_email, subject, status, provider)
