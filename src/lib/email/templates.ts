@@ -22,7 +22,7 @@ import type { Household } from '@/lib/households'
 export const PASS_EMAIL_SUBJECT = 'Sarigama Express Ticketing — your Onam Sadhya pass 🎟️'
 
 /** The week-of mailing: same pass, plus the details people ask for on the day. */
-export const REMINDER_EMAIL_SUBJECT = 'Tomorrow — Onam Sadhya details, and your pass 🌼'
+export const REMINDER_EMAIL_SUBJECT = 'Onam Sadhya — final details and your pass 🌼'
 
 /**
  * Which mailing is being rendered.
@@ -203,10 +203,9 @@ function eventPanel(event: EventDetails): string {
     event.timing ? detailRow('Time', event.timing) : '',
     event.venue ? detailRow('Where', event.venue) : '',
     event.address ? detailRow('Address', event.address) : '',
-    event.parking ? detailRow('Parking', event.parking) : '',
-    event.notes ? detailRow('Note', event.notes, true) : '',
+    event.parking ? detailRow('Parking', event.parking, true) : '',
   ].filter(Boolean)
-  if (rows.length === 0) return ''
+  if (rows.length === 0 && !event.notes) return ''
 
   // Close the border on whichever row ended up last.
   const body = rows.join('').replace(/border-bottom:1px solid #d7e7dd;(?![\s\S]*border-bottom:1px solid #d7e7dd;)/g, '')
@@ -218,6 +217,17 @@ function eventPanel(event: EventDetails): string {
           <td style="padding:16px 20px;background-color:#EAF5EE;border-radius:14px;">
             <div style="font-family:${FONT};font-size:11px;font-weight:800;letter-spacing:2.2px;text-transform:uppercase;color:${GREEN_MID};padding-bottom:8px;">&#127800; Final details</div>
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;">${body}</table>
+            ${
+              event.notes
+                ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#FFF1D6;border:1px solid ${GOLD};border-radius:11px;margin-top:14px;">
+                     <tr>
+                       <td style="padding:13px 16px;background-color:#FFF1D6;border-radius:11px;font-family:${FONT};font-size:15px;line-height:1.55;font-weight:700;color:#7a4d05;">
+                         &#9200; ${escapeHtml(event.notes)}
+                       </td>
+                     </tr>
+                   </table>`
+                : ''
+            }
           </td>
         </tr>
       </table>
