@@ -135,12 +135,42 @@ export function useQrScanner({
       // Set before awaiting: the container div must already be mounted and
       // visible when html5-qrcode measures it, or it renders at zero height.
       setBackend('fallback')
-      const { Html5Qrcode } = await import('html5-qrcode')
-      const instance = new Html5Qrcode('qr-fallback-region', { verbose: false })
+      const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import('html5-qrcode')
+      const instance = new Html5Qrcode('qr-fallback-region', {
+        verbose: false,
+        // Only ever looking for one symbology. Skipping the other decoders is
+        // free accuracy and speed on the phones that land here.
+        formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+        experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+      })
       fallbackRef.current = instance
       await instance.start(
         { facingMode: 'environment' },
-        { fps: 10, qrbox: { width: 260, height: 260 } },
+        {
+          fps: 15,
+          /**
+           * Sized from the live viewfinder, never a fixed number.
+           *
+           * qrbox crops the frame before decoding, in VIDEO pixels — not CSS
+           * pixels. The old fixed 260×260 was smaller than an iPhone's camera
+           * frame, so a code held close enough to fill the screen had its corner
+           * finder patterns cropped away and never decoded at all: camera live,
+           * code perfectly framed, nothing happening. Desktop never hit it
+           * because Chrome uses the native detector, which crops nothing.
+           */
+          qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+            const smaller = Math.min(viewfinderWidth, viewfinderHeight)
+            const size = Math.max(200, Math.floor(smaller * 0.85))
+            return { width: size, height: size }
+          },
+          // Ask for a sharp frame. Phone cameras default low enough that a dense
+          // token QR can land under one module per pixel.
+          videoConstraints: {
+            facingMode: 'environment',
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+        },
         (decoded) => emit(decoded),
         () => {
           /* per-frame miss — normal */
