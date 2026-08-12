@@ -216,11 +216,10 @@ function pushContacts() {
       message += '\n  ' + out.invalid[i].name + ': ' + out.invalid[i].offered;
     }
   }
-  if (out.conflicts && out.conflicts.length) {
-    // Left alone on purpose: a typo here must not redirect someone's pass.
-    message += '\n\nAlready had a different address, left unchanged (' + out.conflicts.length + '):';
-    for (var j = 0; j < Math.min(out.conflicts.length, 5); j++) {
-      message += '\n  ' + out.conflicts[j].name + ': kept ' + out.conflicts[j].existing;
+  if (out.corrected && out.corrected.length) {
+    message += '\n\nCorrected (' + out.corrected.length + '):';
+    for (var j = 0; j < Math.min(out.corrected.length, 5); j++) {
+      message += '\n  ' + out.corrected[j].name + ': ' + out.corrected[j].from + ' -> ' + out.corrected[j].to;
     }
   }
   Browser.msgBox(message);

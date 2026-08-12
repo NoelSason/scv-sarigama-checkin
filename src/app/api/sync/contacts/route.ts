@@ -113,7 +113,7 @@ const Body = z.object({
 type Outcome = {
   filled: number
   unchanged: number
-  conflicts: Array<{ name: string; existing: string; offered: string }>
+  corrected: Array<{ name: string; from: string; to: string }>
   invalid: Array<{ name: string; offered: string }>
   unknownRefs: number
 }
@@ -121,10 +121,14 @@ type Outcome = {
 /**
  * Take the tab back and write the new addresses onto the households.
  *
- * Only ever fills a blank. An address already on file — every Square buyer has
- * one straight from their checkout — is left exactly as it is and reported as a
- * conflict instead, because a typo in a spreadsheet must not be able to
- * redirect a pass away from the person who paid for it.
+ * The sheet wins. An earlier version refused to overwrite, on the theory that a
+ * spreadsheet typo should not redirect somebody's pass — but that gets it
+ * backwards in practice: the typo is what lands first, and the correction is
+ * what gets rejected. `sojan.thomas@gmail.co` sat there precisely because the
+ * fixed `.com` could not replace it.
+ *
+ * The old value goes into the audit log on every change, so a wrong overwrite is
+ * always recoverable.
  */
 export async function POST(req: Request) {
   if (!authorized(req)) return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 })
@@ -150,7 +154,7 @@ export async function POST(req: Request) {
     )
   }
 
-  const outcome: Outcome = { filled: 0, unchanged: 0, conflicts: [], invalid: [], unknownRefs: 0 }
+  const outcome: Outcome = { filled: 0, unchanged: 0, corrected: [], invalid: [], unknownRefs: 0 }
 
   for (let i = 1; i < body.values.length; i++) {
     const row = body.values[i] ?? []
@@ -186,13 +190,12 @@ export async function POST(req: Request) {
       }
 
       const current = existing[0].email?.trim() ?? null
-      if (current && normalizeEmail(current) !== email) {
-        outcome.conflicts.push({ name: existing[0].display_name, existing: current, offered: raw })
+      if (current && normalizeEmail(current) === email) {
+        outcome.unchanged++
         continue
       }
       if (current) {
-        outcome.unchanged++
-        continue
+        outcome.corrected.push({ name: existing[0].display_name, from: current, to: raw.trim() })
       }
 
       // The RESOLVED id, not the one from the sheet: after a merge those differ,
@@ -206,10 +209,11 @@ export async function POST(req: Request) {
         await logAudit('contact_email_filled', {
           actorType: 'import',
           householdId: target,
-          metadata: { email: raw.trim(), via: 'contacts tab', sheetRef: id },
+          // previous value recorded so an unwanted overwrite can be undone
+          metadata: { email: raw.trim(), previous: current, via: 'contacts tab', sheetRef: id },
         })
       }
-      outcome.filled++
+      if (!current) outcome.filled++
     }
   }
 
