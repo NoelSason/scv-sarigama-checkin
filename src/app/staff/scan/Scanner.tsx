@@ -59,7 +59,7 @@ export function Scanner({ staffName }: { staffName: string }) {
     }
   }, [])
 
-  const { videoRef, state, backend, message, start, stop } = useQrScanner({
+  const { videoRef, state, backend, message, diag, start, stop } = useQrScanner({
     onScan: lookup,
     paused,
   })
@@ -190,6 +190,17 @@ export function Scanner({ staffName }: { staffName: string }) {
         {backend === 'native' && state === 'running' && phase.kind === 'scanning' && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <div className="h-52 w-52 rounded-2xl border-4 border-[rgba(232,184,75,0.9)] shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
+          </div>
+        )}
+
+        {/* Decoder readout.
+            "Not scanning" looks the same whether frames never reach the decoder,
+            reach it and fail, or decode fine and get swallowed downstream. These
+            three numbers tell those apart from across a room, which beats
+            plugging a phone into a laptop at an event. */}
+        {state === 'running' && (
+          <div className="pointer-events-none absolute bottom-1.5 left-1.5 rounded-md bg-black/65 px-2 py-1 font-mono text-[10px] leading-tight text-white/85">
+            {backend} · {diag.video ?? 'video ?'} · seen {diag.misses} · read {diag.decodes}
           </div>
         )}
 

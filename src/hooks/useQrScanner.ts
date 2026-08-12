@@ -13,6 +13,21 @@ type ScannerState = 'idle' | 'starting' | 'running' | 'denied' | 'unsupported' |
 export type ScannerBackend = 'native' | 'fallback' | null
 
 /**
+ * Live counters from the decoder.
+ *
+ * A phone that "isn't scanning" has several very different causes that all look
+ * identical from the outside. These numbers separate them without a laptop and a
+ * cable: misses climbing means frames reach the decoder and it simply cannot
+ * read the code; misses frozen at zero means they never arrive.
+ */
+export type ScannerDiagnostics = {
+  misses: number
+  decodes: number
+  video: string | null
+  lastDecodeAt: number | null
+}
+
+/**
  * QR scanning with two backends.
  *
  * Primary: the native BarcodeDetector, hardware-accelerated and by far the
@@ -37,10 +52,15 @@ export function useQrScanner({
   const rafRef = useRef<number | null>(null)
   const pausedRef = useRef(paused)
   const lastRef = useRef<{ value: string; at: number } | null>(null)
+  const missCountRef = useRef(0)
+  const decodeCountRef = useRef(0)
 
   const [state, setState] = useState<ScannerState>('idle')
   const [backend, setBackend] = useState<ScannerBackend>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const [diag, setDiag] = useState<ScannerDiagnostics>({
+    misses: 0, decodes: 0, video: null, lastDecodeAt: null,
+  })
 
   useEffect(() => {
     pausedRef.current = paused
@@ -110,7 +130,20 @@ export function useQrScanner({
           try {
             if (!pausedRef.current && video.readyState >= 2) {
               const codes = await detector.detect(video)
-              if (codes.length > 0 && codes[0].rawValue) emit(codes[0].rawValue)
+              if (codes.length > 0 && codes[0].rawValue) {
+                decodeCountRef.current += 1
+                setDiag((d) => ({ ...d, decodes: decodeCountRef.current, lastDecodeAt: Date.now() }))
+                emit(codes[0].rawValue)
+              } else {
+                missCountRef.current += 1
+                if (missCountRef.current % 10 === 0) {
+                  setDiag((d) => ({
+                    ...d,
+                    misses: missCountRef.current,
+                    video: `${video.videoWidth}x${video.videoHeight}`,
+                  }))
+                }
+              }
             }
           } catch {
             /* transient decode failure — keep scanning */
@@ -141,7 +174,6 @@ export function useQrScanner({
         // Only ever looking for one symbology. Skipping the other decoders is
         // free accuracy and speed on the phones that land here.
         formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-        experimentalFeatures: { useBarCodeDetectorIfSupported: true },
       })
       fallbackRef.current = instance
       await instance.start(
@@ -149,31 +181,44 @@ export function useQrScanner({
         {
           fps: 15,
           /**
-           * Sized from the live viewfinder, never a fixed number.
+           * No qrbox: decode the WHOLE frame.
            *
-           * qrbox crops the frame before decoding, in VIDEO pixels — not CSS
-           * pixels. The old fixed 260×260 was smaller than an iPhone's camera
-           * frame, so a code held close enough to fill the screen had its corner
-           * finder patterns cropped away and never decoded at all: camera live,
-           * code perfectly framed, nothing happening. Desktop never hit it
-           * because Chrome uses the native detector, which crops nothing.
+           * qrbox crops in video pixels before decoding, and every cropped size
+           * has the same failure — a volunteer naturally holds the code close
+           * enough to fill the viewfinder, which pushes its corner finder
+           * patterns outside the crop. Without those three corners a QR is not
+           * decodable at all, which looks exactly like a dead scanner: camera
+           * live, code perfectly framed, nothing happening.
+           *
+           * Desktop never showed it because Chrome uses the native detector,
+           * which crops nothing. Scanning the full frame costs a little CPU per
+           * frame and removes the entire class of bug.
            */
-          qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
-            const smaller = Math.min(viewfinderWidth, viewfinderHeight)
-            const size = Math.max(200, Math.floor(smaller * 0.85))
-            return { width: size, height: size }
-          },
-          // Ask for a sharp frame. Phone cameras default low enough that a dense
-          // token QR can land under one module per pixel.
           videoConstraints: {
             facingMode: 'environment',
             width: { ideal: 1280 },
             height: { ideal: 720 },
           },
         },
-        (decoded) => emit(decoded),
+        (decoded) => {
+          decodeCountRef.current += 1
+          setDiag((d) => ({ ...d, decodes: decodeCountRef.current, lastDecodeAt: Date.now() }))
+          emit(decoded)
+        },
         () => {
-          /* per-frame miss — normal */
+          // Fires once per frame that contained no readable code — which is most
+          // of them. Counted, not logged: a rising number is proof that frames
+          // are reaching the decoder at all, which is the first thing worth
+          // knowing when a phone "isn't scanning".
+          missCountRef.current += 1
+          if (missCountRef.current % 10 === 0) {
+            const v = document.querySelector<HTMLVideoElement>('#qr-fallback-region video')
+            setDiag((d) => ({
+              ...d,
+              misses: missCountRef.current,
+              video: v ? `${v.videoWidth}x${v.videoHeight}` : 'no video',
+            }))
+          }
         },
       )
       setState('running')
@@ -194,5 +239,5 @@ export function useQrScanner({
     }
   }, [stop])
 
-  return { videoRef, state, backend, message, start, stop }
+  return { videoRef, state, backend, message, diag, start, stop }
 }
