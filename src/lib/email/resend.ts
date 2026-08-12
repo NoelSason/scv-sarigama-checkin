@@ -27,6 +27,7 @@ class ResendProvider implements EmailProvider {
       const { data, error } = await this.client.emails.send({
         from: process.env.EMAIL_FROM?.trim() || DEFAULT_FROM,
         to: message.to,
+        cc: message.cc?.length ? message.cc : undefined,
         subject: message.subject,
         html: message.html,
         text: message.text,

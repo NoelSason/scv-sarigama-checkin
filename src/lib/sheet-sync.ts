@@ -100,6 +100,9 @@ type ExistingHousehold = {
   pass_enabled: boolean
   /** Set when this purchase was folded into somebody else's single pass. */
   merged_into_id: string | null
+  /** Set when a human fixed this row by hand; the sheet no longer overrides it. */
+  locked_at: string | null
+  locked_reason: string | null
 }
 
 type PendingReview = {
@@ -153,7 +156,8 @@ export async function syncSheet(options: SyncOptions = {}): Promise<SyncSummary>
 
     const existing = await query<ExistingHousehold>(
       `select id, display_name, source_record_id, tickets_purchased, tickets_redeemed,
-              amount_paid_cents, payment_status, pass_enabled, merged_into_id
+              amount_paid_cents, payment_status, pass_enabled, merged_into_id,
+              locked_at, locked_reason
          from households
         where source = $1 and source_record_id is not null`,
       [SHEETS_SOURCE],
@@ -502,7 +506,8 @@ async function applyCreate(row: ParsedRow, ctx: ApplyContext): Promise<SyncItem>
     if (!isUniqueViolation(err)) throw err
     const existing = await queryOne<ExistingHousehold>(
       `select id, display_name, source_record_id, tickets_purchased, tickets_redeemed,
-              amount_paid_cents, payment_status, pass_enabled, merged_into_id
+              amount_paid_cents, payment_status, pass_enabled, merged_into_id,
+              locked_at, locked_reason
          from households where source = $1 and source_record_id = $2`,
       [SHEETS_SOURCE, row.fingerprint],
     )
@@ -518,6 +523,15 @@ async function applyUpdate(
 ): Promise<SyncItem> {
   const item = itemFromRow(row)
   item.householdId = existing.id
+
+  // A human has already decided what this household should say. The sheet still
+  // matches it — which is what stops a duplicate being created — but it no
+  // longer gets a vote on the numbers.
+  if (existing.locked_at) {
+    item.action = 'skip'
+    item.reason = `locked: ${existing.locked_reason ?? 'set by hand'}`
+    return item
+  }
 
   // This row's household was folded into somebody's single pass, and its own
   // ticket count was zeroed so the admissions live in exactly one place. Writing

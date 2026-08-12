@@ -22,6 +22,9 @@ export type EmailAttachment = {
 
 export type EmailMessage = {
   to: string
+  /** Copied recipients. Everyone on it sees every other address, so it is for
+   *  organizers checking a send, never for batching guests together. */
+  cc?: string[]
   subject: string
   html: string
   text: string
