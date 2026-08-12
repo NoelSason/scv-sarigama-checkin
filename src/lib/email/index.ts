@@ -3,7 +3,7 @@ import { findById, logAudit, passUrl, type Household } from '@/lib/households'
 import type { EmailProvider } from './provider'
 import { QR_CID, renderPassQr } from './qr'
 import { createResendProvider } from './resend'
-import { renderPassEmail } from './templates'
+import { renderPassEmail, type PassEmailVariant } from './templates'
 
 export type { EmailMessage, EmailProvider, EmailResult } from './provider'
 export { PASS_EMAIL_SUBJECT, renderPassEmail } from './templates'
@@ -43,7 +43,15 @@ function passIsSendable(household: Household): boolean {
  * marked sent to the guest's address would later be read as "they already have
  * it" and the real send would skip them.
  */
-export async function sendPassEmail(household: Household): Promise<SendPassResult> {
+export async function sendPassEmail(
+  household: Household,
+  /**
+   * Which mailing this is. Recorded on the delivery so the sender can ask
+   * "already sent?" per mailing: the pass send never repeats itself, and a
+   * later reminder still reaches everyone exactly once.
+   */
+  variant: PassEmailVariant = 'pass',
+): Promise<SendPassResult> {
   const to = household.email?.trim()
   if (!to) {
     // Expected for most Zelle households — the payments sheet carries no
@@ -63,15 +71,15 @@ export async function sendPassEmail(household: Household): Promise<SendPassResul
   const qr = await renderPassQr(href)
   const message = {
     to,
-    ...renderPassEmail(household, href, { qrCid: qr ? QR_CID : null }),
+    ...renderPassEmail(household, href, { qrCid: qr ? QR_CID : null, variant }),
     attachments: qr ? [qr] : undefined,
   }
 
   const row = await queryOne<{ id: string }>(
-    `insert into email_deliveries (household_id, to_email, subject, status, provider)
-     values ($1, $2, $3, 'pending', $4)
+    `insert into email_deliveries (household_id, to_email, subject, status, provider, kind)
+     values ($1, $2, $3, 'pending', $4, $5)
      returning id`,
-    [household.id, to, message.subject, provider.name],
+    [household.id, to, message.subject, provider.name, variant],
   )
   const deliveryId = row!.id
 

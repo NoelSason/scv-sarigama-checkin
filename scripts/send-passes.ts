@@ -16,6 +16,7 @@ import { query } from '@/lib/db'
 import { sendPassEmail } from '@/lib/email'
 import { testRedirectTarget } from '@/lib/email/provider'
 import type { Household } from '@/lib/households'
+import type { PassEmailVariant } from '@/lib/email/templates'
 
 /** Resend's default is 2 requests/second. Sit well under it. */
 const GAP_MS = 700
@@ -51,11 +52,17 @@ type Row = Household & { already_sent: string | null }
 async function main() {
   const commit = process.argv.includes('--commit')
   const limit = Number(arg('limit') ?? '0') || null
+  const kindArg = (arg('kind') ?? 'pass').toLowerCase()
+  if (kindArg !== 'pass' && kindArg !== 'reminder') {
+    throw new Error(`--kind must be "pass" or "reminder", got "${kindArg}"`)
+  }
+  const kind: PassEmailVariant = kindArg
   const base = assertPublicBaseUrl()
 
   const redirect = testRedirectTarget()
   const from = process.env.EMAIL_FROM?.trim()
 
+  console.log(`mailing:   ${kind}${kind === 'reminder' ? '  (final event details + the pass again)' : '  (the original ticket)'}`)
   console.log(`base url:  ${base}`)
   console.log(`from:      ${from ?? '(EMAIL_FROM unset — provider default)'}`)
   console.log(`api key:   ${process.env.RESEND_API_KEY ? 'set' : 'MISSING — nothing will send'}`)
@@ -69,7 +76,8 @@ async function main() {
   const rows = await query<Row>(
     `select h.*,
             (select max(d.sent_at)::text from email_deliveries d
-              where d.household_id = h.id and d.status = 'sent') as already_sent
+              where d.household_id = h.id and d.status = 'sent'
+                and d.kind = $1) as already_sent
        from households h
       where not h.is_test
         and h.merged_into_id is null
@@ -77,6 +85,7 @@ async function main() {
         and h.payment_status in ('paid', 'comped')
         and coalesce(trim(h.email), '') <> ''
       order by h.tickets_purchased desc, h.display_name`,
+    [kind],
   )
 
   const pending = rows.filter((r) => !r.already_sent)
@@ -100,7 +109,7 @@ async function main() {
   )
 
   console.log(`eligible:      ${rows.length}`)
-  console.log(`already sent:  ${done}`)
+  console.log(`already sent:  ${done}   (this mailing only)`)
   console.log(`to send now:   ${batch.length}${limit && pending.length > limit ? ` (of ${pending.length}, --limit ${limit})` : ''}`)
   console.log(`admissions:    ${batch.reduce((n, r) => n + r.tickets_purchased, 0)}`)
   console.log('\nnot receiving anything:')
@@ -121,7 +130,7 @@ async function main() {
 
   for (const [i, household] of batch.entries()) {
     const label = `[${i + 1}/${batch.length}] ${household.display_name} <${household.email}>`
-    const result = await sendPassEmail(household)
+    const result = await sendPassEmail(household, kind)
     if (result.ok) {
       sent++
       console.log(`ok    ${label}  ${household.tickets_purchased} admissions`)

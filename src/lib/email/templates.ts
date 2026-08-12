@@ -21,14 +21,41 @@ import type { Household } from '@/lib/households'
 
 export const PASS_EMAIL_SUBJECT = 'Sarigama Express Ticketing — your Onam Sadhya pass 🎟️'
 
+/** The week-of mailing: same pass, plus the details people ask for on the day. */
+export const REMINDER_EMAIL_SUBJECT = 'Tomorrow — Onam Sadhya details, and your pass 🌼'
+
+/**
+ * Which mailing is being rendered.
+ *
+ *   pass     — "your payment arrived, here is your ticket"
+ *   reminder — "it is tomorrow, here is where to go, and your ticket again"
+ *
+ * One template rather than two. The ticket, the QR and the skip-the-line rule
+ * are identical in both, and a second copy of that markup would drift the first
+ * time one of them changed.
+ */
+export type PassEmailVariant = 'pass' | 'reminder'
+
 export type PassEmailHousehold = Pick<Household, 'display_name' | 'tickets_purchased'>
 
 export type RenderedEmail = { subject: string; html: string; text: string }
 
 /** Printed on the stub. A blank value drops the line rather than printing a guess. */
-export type EventDetails = { dateLine: string | null; venue: string | null }
+export type EventDetails = {
+  dateLine: string | null
+  venue: string | null
+  /** Street address, for a phone's map app. */
+  address: string | null
+  /** When doors open / when the Sadhya is served. */
+  timing: string | null
+  /** Where to park, and anything to avoid. */
+  parking: string | null
+  /** Anything else that must be said once: entrances, accessibility, contacts. */
+  notes: string | null
+}
 
 export type PassEmailOptions = {
+  variant?: PassEmailVariant
   event?: EventDetails
   /**
    * Content id of the embedded QR image. Omitted, the QR panel is replaced by
@@ -42,6 +69,10 @@ export function eventDetails(): EventDetails {
   return {
     dateLine: process.env.EVENT_DATE_LINE?.trim() || null,
     venue: process.env.EVENT_VENUE?.trim() || null,
+    address: process.env.EVENT_ADDRESS?.trim() || null,
+    timing: process.env.EVENT_TIMING?.trim() || null,
+    parking: process.env.EVENT_PARKING?.trim() || null,
+    notes: process.env.EVENT_NOTES?.trim() || null,
   }
 }
 
@@ -150,16 +181,70 @@ function qrPanel(qrCid: string): string {
   </tr>`
 }
 
+/** One "WHEN / WHERE / PARKING" line. Absent values drop out entirely. */
+function detailRow(label: string, value: string, last = false): string {
+  const rule = last ? '' : 'border-bottom:1px solid #d7e7dd;'
+  return `<tr>
+    <td width="74" valign="top" style="padding:9px 0;font-family:${FONT};font-size:10px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;color:${GREEN_MID};${rule}">${escapeHtml(label)}</td>
+    <td valign="top" style="padding:9px 0 9px 12px;font-family:${FONT};font-size:15px;line-height:1.5;color:${INK};${rule}">${escapeHtml(value)}</td>
+  </tr>`
+}
+
+/**
+ * The final-details panel, shown only on the reminder.
+ *
+ * Every line is optional and a blank one is omitted rather than printed empty —
+ * an address line reading "Where:" with nothing after it is worse than no
+ * address line, because a guest cannot tell whether it is missing or wrong.
+ */
+function eventPanel(event: EventDetails): string {
+  const rows = [
+    event.dateLine ? detailRow('When', event.dateLine) : '',
+    event.timing ? detailRow('Time', event.timing) : '',
+    event.venue ? detailRow('Where', event.venue) : '',
+    event.address ? detailRow('Address', event.address) : '',
+    event.parking ? detailRow('Parking', event.parking) : '',
+    event.notes ? detailRow('Note', event.notes, true) : '',
+  ].filter(Boolean)
+  if (rows.length === 0) return ''
+
+  // Close the border on whichever row ended up last.
+  const body = rows.join('').replace(/border-bottom:1px solid #d7e7dd;(?![\s\S]*border-bottom:1px solid #d7e7dd;)/g, '')
+
+  return `<tr>
+    <td style="padding:22px 30px 0 30px;background-color:${CARD};">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#EAF5EE;border:1px solid #b9dcc7;border-radius:14px;">
+        <tr>
+          <td style="padding:16px 20px;background-color:#EAF5EE;border-radius:14px;">
+            <div style="font-family:${FONT};font-size:11px;font-weight:800;letter-spacing:2.2px;text-transform:uppercase;color:${GREEN_MID};padding-bottom:8px;">&#127800; Final details</div>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;">${body}</table>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>`
+}
+
 export function renderPassEmail(
   household: PassEmailHousehold,
   passHref: string,
   options: PassEmailOptions = {},
 ): RenderedEmail {
-  const { event = eventDetails(), qrCid = null } = options
+  const { event = eventDetails(), qrCid = null, variant = 'pass' } = options
+  const isReminder = variant === 'reminder'
 
   const name = firstName(household.display_name)
   const admissions = admissionsPhrase(household.tickets_purchased)
   const count = household.tickets_purchased
+
+  const detailLines = [
+    event.dateLine ? `When:    ${event.dateLine}` : '',
+    event.timing ? `Time:    ${event.timing}` : '',
+    event.venue ? `Where:   ${event.venue}` : '',
+    event.address ? `Address: ${event.address}` : '',
+    event.parking ? `Parking: ${event.parking}` : '',
+    event.notes ? `Note:    ${event.notes}` : '',
+  ].filter(Boolean)
 
   const text = [
     'SARIGAMA EXPRESS TICKETING',
@@ -167,7 +252,11 @@ export function renderPassEmail(
     '',
     `Hi ${name},`,
     '',
-    'Your Onam payment has been received, and your Sadhya pass is ready.',
+    isReminder
+      ? 'The Sadhya is nearly here. Final details are below, and your pass is'
+        + ' attached again so you do not have to go hunting for the first email.'
+      : 'Your Onam payment has been received, and your Sadhya pass is ready.',
+    ...(isReminder && detailLines.length ? ['', '--- FINAL DETAILS ---', ...detailLines] : []),
     '',
     '*** SKIP THE CHECK-IN LINE ***',
     'Because you have this email, you are already checked in. Do not queue at',
@@ -205,7 +294,7 @@ export function renderPassEmail(
     <td align="center" style="padding:28px 12px;background-color:${CREAM};">
 
       <!-- preheader: shown in the inbox list, hidden in the body -->
-      <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;font-size:1px;line-height:1px;">You&rsquo;re already checked in — skip the line and walk straight to the Sadhya entrance.</div>
+      <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;font-size:1px;line-height:1px;">${isReminder ? 'Final details inside — plus your pass, so you can skip the check-in line.' : 'You&rsquo;re already checked in — skip the line and walk straight to the Sadhya entrance.'}</div>
 
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:560px;background-color:${CARD};border-radius:18px;border:1px solid #dfc98a;overflow:hidden;">
 
@@ -226,9 +315,15 @@ export function renderPassEmail(
         <tr>
           <td style="padding:18px 30px 0 30px;background-color:${CARD};font-family:${FONT};font-size:17px;line-height:1.6;color:${INK};">
             <p style="margin:0 0 14px 0;">Hi ${escapeHtml(name)},</p>
-            <p style="margin:0;">Your Onam payment has been received, and your Sadhya pass is ready.</p>
+            <p style="margin:0;">${
+              isReminder
+                ? 'The Sadhya is nearly here. Final details are below, and your pass is included again so you don&rsquo;t have to go hunting for the first email.'
+                : 'Your Onam payment has been received, and your Sadhya pass is ready.'
+            }</p>
           </td>
         </tr>
+
+        ${isReminder ? eventPanel(event) : ''}
 
         <!-- ============ SKIP THE LINE ============ -->
         <tr>
@@ -357,5 +452,9 @@ export function renderPassEmail(
   </tr>
 </table>`
 
-  return { subject: PASS_EMAIL_SUBJECT, html, text }
+  return {
+    subject: isReminder ? REMINDER_EMAIL_SUBJECT : PASS_EMAIL_SUBJECT,
+    html,
+    text,
+  }
 }
