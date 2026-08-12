@@ -63,6 +63,75 @@ export function strandsAPass(group: HouseholdGroup): boolean {
   return group.members.filter((m) => m.emailedAt).length > 1
 }
 
+/**
+ * Undo one merge.
+ *
+ * Used when two purchases turn out not to belong on the same pass — most often
+ * because one of them was never actually paid. The absorbed row comes back with
+ * its admissions, and the survivor gives them up.
+ *
+ * `restoreTickets: false` returns the row to life with zero admissions, which is
+ * what an unpaid purchase should carry: the record exists, the pass grants
+ * nothing until somebody pays at the desk.
+ */
+export async function unmergeHousehold(
+  absorbedId: string,
+  opts: { restoreTickets?: boolean; staffId?: string | null } = {},
+): Promise<{ survivorId: string; ticketsReturned: number }> {
+  const { restoreTickets = true, staffId = null } = opts
+
+  const record = await queryOne<{
+    survivor_id: string
+    tickets_moved: number
+    redeemed_moved: number
+  }>(
+    `select survivor_id, tickets_moved, redeemed_moved
+       from household_merges where absorbed_id = $1`,
+    [absorbedId],
+  )
+  if (!record) throw new Error(`no merge on record for household ${absorbedId}`)
+
+  await query('begin')
+  try {
+    await query(
+      `update households
+          set tickets_purchased = greatest(tickets_purchased - $2, 0),
+              tickets_redeemed  = greatest(tickets_redeemed  - $3, 0)
+        where id = $1`,
+      [record.survivor_id, record.tickets_moved, record.redeemed_moved],
+    )
+
+    await query(
+      `update households
+          set merged_into_id    = null,
+              merged_at         = null,
+              tickets_purchased = $2,
+              tickets_redeemed  = $3
+        where id = $1`,
+      [
+        absorbedId,
+        restoreTickets ? record.tickets_moved : 0,
+        restoreTickets ? record.redeemed_moved : 0,
+      ],
+    )
+
+    await query(`delete from household_merges where absorbed_id = $1`, [absorbedId])
+    await query('commit')
+  } catch (err) {
+    await query('rollback')
+    throw err
+  }
+
+  await logAudit('household_unmerged', {
+    actorType: staffId ? 'staff' : 'system',
+    actorId: staffId,
+    householdId: record.survivor_id,
+    metadata: { absorbedId, ticketsReturned: record.tickets_moved, restoreTickets },
+  })
+
+  return { survivorId: record.survivor_id, ticketsReturned: record.tickets_moved }
+}
+
 export type MergeResult = {
   survivorId: string
   survivorName: string

@@ -56,8 +56,43 @@ function installTrigger() {
 
   ScriptApp.newTrigger('syncNow').timeBased().everyMinutes(5).create();
   ScriptApp.newTrigger('onSheetEdit').forSpreadsheet(ss).onEdit().create();
+  ScriptApp.newTrigger('autoContactsSync').timeBased().everyMinutes(5).create();
 
-  Browser.msgBox('Sync installed. Edits now reach the check-in app within a few minutes.');
+  Browser.msgBox(
+    'Sync installed.\n\n' +
+      'Form Responses reaches the app within a few minutes of any edit.\n' +
+      'The ' + CONTACTS_TAB + ' tab now keeps itself up to date on its own.'
+  );
+}
+
+/**
+ * The automatic half of the contacts loop, on a 5-minute timer.
+ *
+ * Push before refresh, always. Refresh rewrites the Email column from the app,
+ * so anything typed but not yet sent would be wiped by a refresh that ran first.
+ *
+ * No dialogs anywhere in here — a time-based trigger has no user to show them
+ * to, and calling Browser.msgBox would abort the run.
+ */
+function autoContactsSync() {
+  var sheet = SpreadsheetApp.getActive().getSheetByName(CONTACTS_TAB);
+  if (!sheet) return; // tab not built yet; nothing to keep in sync
+
+  var pushed = pushContactsSilent();
+  if (!pushed.ok) {
+    console.error('auto contacts push failed: ' + pushed.message);
+    return; // do NOT refresh — that would discard the typing we failed to send
+  }
+
+  var refreshed = refreshContactsSilent();
+  if (!refreshed.ok) {
+    console.error('auto contacts refresh failed: ' + refreshed.message);
+    return;
+  }
+
+  if (pushed.saved || pushed.corrected) {
+    console.log('auto contacts: ' + pushed.saved + ' saved, ' + pushed.corrected + ' corrected');
+  }
 }
 
 /** Menu item, so anyone can force a sync without opening the script editor. */
@@ -87,12 +122,21 @@ function onOpen() {
  * position, so a re-sorted or re-grouped tab still keeps its typing.
  */
 function refreshContacts() {
+  var result = refreshContactsSilent();
+  Browser.msgBox(result.message);
+}
+
+/**
+ * The same work with no dialogs.
+ *
+ * Browser.msgBox only exists when a human has the sheet open; calling it from a
+ * time-based trigger throws and the whole run dies. Every automatic path goes
+ * through here, and only the menu items talk to the user.
+ */
+function refreshContactsSilent() {
   var props = PropertiesService.getScriptProperties();
   var secret = props.getProperty('CHECKIN_SECRET');
-  if (!secret) {
-    Browser.msgBox('Not set up — run setUp() first.');
-    return;
-  }
+  if (!secret) return { ok: false, message: 'Not set up — run setUp() first.' };
 
   var res = UrlFetchApp.fetch(CONTACTS_ENDPOINT, {
     method: 'get',
@@ -101,8 +145,7 @@ function refreshContacts() {
   });
 
   if (res.getResponseCode() !== 200) {
-    Browser.msgBox('Could not load contacts.\n\n' + describeFailure(res));
-    return;
+    return { ok: false, message: 'Could not load contacts.\n\n' + describeFailure(res) };
   }
 
   var data = JSON.parse(res.getContentText());
@@ -143,14 +186,17 @@ function refreshContacts() {
 
   formatContacts(sheet, values.length, values[0].length, emailCol, refCol);
 
-  Browser.msgBox(
-    'Contacts refreshed.\n\n' +
+  return {
+    ok: true,
+    stats: data.stats,
+    message:
+      'Contacts refreshed.\n\n' +
       data.stats.people + ' people (' + data.stats.households + ' purchases)\n' +
       data.stats.missingEmail + ' still need an email\n' +
       data.stats.duplicateGroups + ' bought more than once\n' +
       (restored ? restored + ' typed-in addresses carried over\n' : '') +
-      '\nFill the yellow Email cells, then: Check-in → Send filled-in emails to app.'
-  );
+      '\nFill the yellow Email cells — they send to the app on their own within 5 minutes.',
+  };
 }
 
 /** Header row frozen, email column highlighted, REF pushed out of the way. */
@@ -181,17 +227,19 @@ function formatContacts(sheet, rows, cols, emailCol, refCol) {
 
 /** Send the filled-in addresses back to the app. */
 function pushContacts() {
+  var result = pushContactsSilent();
+  Browser.msgBox(result.message);
+}
+
+/** Dialog-free, so the 5-minute trigger can call it. */
+function pushContactsSilent() {
   var props = PropertiesService.getScriptProperties();
   var secret = props.getProperty('CHECKIN_SECRET');
-  if (!secret) {
-    Browser.msgBox('Not set up — run setUp() first.');
-    return;
-  }
+  if (!secret) return { ok: false, message: 'Not set up — run setUp() first.' };
 
   var sheet = SpreadsheetApp.getActive().getSheetByName(CONTACTS_TAB);
   if (!sheet) {
-    Browser.msgBox('No "' + CONTACTS_TAB + '" tab yet — run "Refresh contacts tab" first.');
-    return;
+    return { ok: false, message: 'No "' + CONTACTS_TAB + '" tab yet — refresh it first.' };
   }
 
   var values = sheet.getDataRange().getDisplayValues();
@@ -204,8 +252,7 @@ function pushContacts() {
   });
 
   if (res.getResponseCode() !== 200) {
-    Browser.msgBox('Could not send emails.\n\n' + describeFailure(res));
-    return;
+    return { ok: false, message: 'Could not send emails.\n\n' + describeFailure(res) };
   }
 
   var out = JSON.parse(res.getContentText());
@@ -222,7 +269,7 @@ function pushContacts() {
       message += '\n  ' + out.corrected[j].name + ': ' + out.corrected[j].from + ' -> ' + out.corrected[j].to;
     }
   }
-  Browser.msgBox(message);
+  return { ok: true, saved: out.filled, corrected: (out.corrected || []).length, message: message };
 }
 
 /**
