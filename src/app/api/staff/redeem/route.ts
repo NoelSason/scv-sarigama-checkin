@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { query } from '@/lib/db'
 import { requireStaffApi } from '@/lib/auth'
-import { redeemTickets } from '@/lib/households'
+import { logAudit, redeemTickets } from '@/lib/households'
+import { requestContext } from '@/lib/request-context'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,6 +37,31 @@ export async function POST(req: Request) {
     staff.id,
     parsed.device ?? null,
   )
+
+  // Releasing a meal is the highest-value action in the app, so it is recorded
+  // whether it succeeded or was refused — a stream of refusals from one address
+  // is exactly the pattern worth being able to see afterwards.
+  const ctx = await requestContext()
+  if (result.success && result.redemption_id) {
+    await query(
+      `update redemptions
+          set ip = $2, user_agent = $3, geo_city = $4, geo_region = $5, geo_country = $6
+        where id = $1`,
+      [result.redemption_id, ctx.ip, ctx.userAgent, ctx.geoCity, ctx.geoRegion, ctx.geoCountry],
+    )
+  }
+  await logAudit(result.success ? 'scan_redeemed' : 'scan_refused', {
+    actorType: 'staff',
+    actorId: staff.id,
+    householdId: parsed.householdId,
+    metadata: {
+      requested: parsed.quantity,
+      redeemed: result.redeemed_now ?? 0,
+      remaining: result.tickets_remaining ?? null,
+      device: parsed.device ?? null,
+      error: result.error ?? null,
+    },
+  })
 
   // A refusal is a legitimate, expected outcome — not a server error. Return
   // 200 with success:false so the scanner always parses one shape.

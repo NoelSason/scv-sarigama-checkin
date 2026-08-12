@@ -28,6 +28,14 @@ var TAB_NAME = 'Form Responses 1';
 var CONTACTS_TAB = 'Pass Contacts';
 
 /**
+ * Security audit tab. Append-only: rows already written are never rewritten, so
+ * the record cannot be quietly altered by a later sync, and event day's few
+ * thousand scans do not mean re-uploading the whole history every five minutes.
+ */
+var ANALYTICS_TAB = 'Event Analytics';
+var ANALYTICS_ENDPOINT = 'https://checkin.scvsarigama.com/api/sync/analytics';
+
+/**
  * Run this ONCE and paste the secret when prompted.
  * Stored in script properties, not in this file, so the secret never lives in
  * anything that gets shared or version-controlled.
@@ -57,6 +65,7 @@ function installTrigger() {
   ScriptApp.newTrigger('syncNow').timeBased().everyMinutes(5).create();
   ScriptApp.newTrigger('onSheetEdit').forSpreadsheet(ss).onEdit().create();
   ScriptApp.newTrigger('autoContactsSync').timeBased().everyMinutes(5).create();
+  ScriptApp.newTrigger('pullAnalytics').timeBased().everyMinutes(5).create();
 
   Browser.msgBox(
     'Sync installed.\n\n' +
@@ -103,6 +112,8 @@ function onOpen() {
     .addSeparator()
     .addItem('Refresh contacts tab', 'refreshContacts')
     .addItem('Send filled-in emails to app', 'pushContacts')
+    .addSeparator()
+    .addItem('Update event analytics', 'refreshAnalytics')
     .addToUi();
 }
 
@@ -301,6 +312,96 @@ function describeFailure(res) {
     return 'HTTP ' + code + ' — the app returned a web page instead of data.';
   }
   return 'HTTP ' + code + ' — ' + body.substring(0, 300);
+}
+
+// ---------------------------------------------------------------------------
+// Event Analytics
+//
+// Every recorded action in the app: payments, logins (with address and rough
+// location), scans, desk lookups, admin changes, raffle draws, syncs, emails.
+// ---------------------------------------------------------------------------
+
+/** Menu version: reports what it did. */
+function refreshAnalytics() {
+  var added = pullAnalytics();
+  Browser.msgBox(
+    added < 0
+      ? 'Could not update event analytics — see the execution log.'
+      : added + ' new event(s) added to "' + ANALYTICS_TAB + '".'
+  );
+}
+
+/**
+ * Fetch everything that has happened since last time and append it.
+ *
+ * Returns the number of rows added, or -1 on failure. No dialogs: this runs on
+ * a timer, where there is nobody to show one to.
+ */
+function pullAnalytics() {
+  var props = PropertiesService.getScriptProperties();
+  var secret = props.getProperty('CHECKIN_SECRET');
+  if (!secret) return -1;
+
+  var ss = SpreadsheetApp.getActive();
+  var sheet = ss.getSheetByName(ANALYTICS_TAB);
+  var cursor = props.getProperty('ANALYTICS_CURSOR') || '';
+
+  // Ids already on the sheet. The endpoint deliberately re-sends a short overlap
+  // so an event sharing a timestamp with the cursor cannot slip through the gap;
+  // this is what makes that overlap harmless.
+  var seen = {};
+  if (sheet && sheet.getLastRow() > 1) {
+    var idCol = sheet.getLastColumn();
+    var existing = sheet.getRange(2, idCol, sheet.getLastRow() - 1, 1).getDisplayValues();
+    for (var e = 0; e < existing.length; e++) seen[existing[e][0]] = true;
+  }
+
+  var total = 0;
+  // Drain the backlog rather than adding one page per tick, so a busy event day
+  // catches up in one run instead of falling further behind.
+  for (var page = 0; page < 20; page++) {
+    var url = ANALYTICS_ENDPOINT + (cursor ? '?since=' + encodeURIComponent(cursor) : '');
+    var res = UrlFetchApp.fetch(url, {
+      method: 'get',
+      headers: { Authorization: 'Bearer ' + secret },
+      muteHttpExceptions: true,
+    });
+    if (res.getResponseCode() !== 200) {
+      console.error('analytics fetch failed: ' + describeFailure(res));
+      return total > 0 ? total : -1;
+    }
+
+    var data = JSON.parse(res.getContentText());
+
+    if (!sheet) {
+      sheet = ss.insertSheet(ANALYTICS_TAB);
+      sheet.getRange(1, 1, 1, data.headers.length).setValues([data.headers]);
+      sheet.setFrozenRows(1);
+      sheet.getRange(1, 1, 1, data.headers.length)
+        .setFontWeight('bold').setBackground('#124a33').setFontColor('#ffffff');
+      sheet.setColumnWidth(data.headers.length, 60); // event id: present, not prominent
+    }
+
+    var fresh = [];
+    for (var i = 0; i < data.values.length; i++) {
+      var id = data.values[i][data.values[i].length - 1];
+      if (!seen[id]) { seen[id] = true; fresh.push(data.values[i]); }
+    }
+
+    if (fresh.length) {
+      sheet.getRange(sheet.getLastRow() + 1, 1, fresh.length, fresh[0].length).setValues(fresh);
+      total += fresh.length;
+    }
+
+    if (data.cursor) { cursor = data.cursor; props.setProperty('ANALYTICS_CURSOR', cursor); }
+    if (!data.more) break;
+  }
+
+  if (total) {
+    SpreadsheetApp.flush();
+    console.log('analytics: ' + total + ' new event(s)');
+  }
+  return total;
 }
 
 function indexOfHeader(header, name) {

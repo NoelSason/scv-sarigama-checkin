@@ -1,9 +1,11 @@
 import 'server-only'
 import { timingSafeEqual } from 'node:crypto'
 import { cookies, headers } from 'next/headers'
+import { requestContext } from '@/lib/request-context'
 import { redirect } from 'next/navigation'
 import { query, queryOne } from './db'
 import { generateSessionToken, sha256, verifyPassword } from './tokens'
+import { logAudit } from '@/lib/households'
 
 export const SESSION_COOKIE = 'onam_staff'
 const SESSION_DAYS = 14
@@ -29,10 +31,18 @@ export type Staff = {
 export async function createSession(staffId: string, userAgent?: string): Promise<string> {
   const token = generateSessionToken()
   const expires = new Date(Date.now() + SESSION_DAYS * 86_400_000)
+  // Where the session was opened, recorded on the session itself: a device that
+  // signs in from an unexpected place is the signal worth catching, and it has
+  // to be attached to the session to be revocable on that basis.
+  const ctx = await requestContext()
   await query(
-    `insert into staff_sessions (token_hash, staff_id, user_agent, expires_at)
-     values ($1, $2, $3, $4)`,
-    [sha256(token), staffId, userAgent ?? null, expires],
+    `insert into staff_sessions
+       (token_hash, staff_id, user_agent, expires_at, ip, geo_city, geo_region, geo_country)
+     values ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [
+      sha256(token), staffId, userAgent ?? ctx.userAgent, expires,
+      ctx.ip, ctx.geoCity, ctx.geoRegion, ctx.geoCountry,
+    ],
   )
   return token
 }
@@ -117,6 +127,18 @@ export async function signIn(
   const stored = row?.password_hash ?? 'ffff:ffff'
   const valid = await verifyPassword(password, stored)
 
+  if (!row || !valid || !row.active) {
+    // Recorded with the address it came from. A burst of these is the single
+    // clearest sign of someone trying to get into the portal.
+    await logAudit('staff_signin_failed', {
+      actorType: 'staff',
+      actorId: row?.id ?? null,
+      metadata: {
+        email: normalized,
+        reason: !row ? 'no such account' : !valid ? 'wrong password' : 'account deactivated',
+      },
+    })
+  }
   if (!row || !valid) return { ok: false, error: 'Incorrect email or password.' }
   if (!row.active) return { ok: false, error: 'This account has been deactivated.' }
 
@@ -133,11 +155,11 @@ export async function signIn(
   })
 
   await query('update staff_users set last_login_at = now() where id = $1', [row.id])
-  await query(
-    `insert into audit_logs (actor_type, actor_id, action, metadata)
-     values ('staff', $1, 'staff_signed_in', $2)`,
-    [row.id, JSON.stringify({ email: normalized })],
-  )
+  await logAudit('staff_signed_in', {
+    actorType: 'staff',
+    actorId: row.id,
+    metadata: { email: normalized, via: 'password' },
+  })
 
   const { password_hash: _drop, ...staff } = row
   void _drop

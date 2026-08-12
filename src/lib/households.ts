@@ -1,5 +1,6 @@
 import { query, queryOne } from './db'
 import { generatePassToken, normalizeEmail, normalizeName, normalizePhone } from './tokens'
+import { requestContext } from '@/lib/request-context'
 
 export type PaymentStatus =
   | 'unpaid'
@@ -152,6 +153,17 @@ export async function createHousehold(input: CreateHouseholdInput): Promise<Hous
   return row
 }
 
+/**
+ * Record something that happened.
+ *
+ * Caller context — address, approximate location, device, route — is read from
+ * the live request here rather than passed in, so no call site can forget it and
+ * every entry is comparable. Outside a request (scripts, cron) the fields are
+ * simply null.
+ *
+ * Never throws. An audit write that fails must not take down the action it was
+ * describing: losing the log line is bad, losing the guest's redemption is worse.
+ */
 export async function logAudit(
   action: string,
   opts: {
@@ -161,17 +173,30 @@ export async function logAudit(
     metadata?: Record<string, unknown>
   } = {},
 ): Promise<void> {
-  await query(
-    `insert into audit_logs (actor_type, actor_id, action, household_id, metadata)
-     values ($1, $2, $3, $4, $5)`,
-    [
-      opts.actorType ?? 'staff',
-      opts.actorId ?? null,
-      action,
-      opts.householdId ?? null,
-      JSON.stringify(opts.metadata ?? {}),
-    ],
-  )
+  const ctx = await requestContext()
+  try {
+    await query(
+      `insert into audit_logs
+         (actor_type, actor_id, action, household_id, metadata,
+          ip, user_agent, geo_city, geo_region, geo_country, request_path)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [
+        opts.actorType ?? 'staff',
+        opts.actorId ?? null,
+        action,
+        opts.householdId ?? null,
+        JSON.stringify(opts.metadata ?? {}),
+        ctx.ip,
+        ctx.userAgent,
+        ctx.geoCity,
+        ctx.geoRegion,
+        ctx.geoCountry,
+        ctx.requestPath,
+      ],
+    )
+  } catch (err) {
+    console.error(`[audit] failed to record "${action}":`, err)
+  }
 }
 
 export type RedeemResult = {
