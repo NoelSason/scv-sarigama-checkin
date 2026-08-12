@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "seed": "dotenv -e .env.local -- tsx scripts/seed.ts",
-    "create-staff": "dotenv -e .env.local -- tsx scripts/create-staff.ts"
+    "create-staff": "dotenv -e .env.local -- tsx scripts/create-staff.ts",
+    "merge": "dotenv -e .env.local -- tsx --tsconfig tsconfig.scripts.json scripts/merge-duplicates.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

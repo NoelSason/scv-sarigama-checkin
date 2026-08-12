@@ -101,7 +101,7 @@ function refreshContacts() {
   });
 
   if (res.getResponseCode() !== 200) {
-    Browser.msgBox('Could not load contacts: ' + res.getContentText());
+    Browser.msgBox('Could not load contacts.\n\n' + describeFailure(res));
     return;
   }
 
@@ -204,7 +204,7 @@ function pushContacts() {
   });
 
   if (res.getResponseCode() !== 200) {
-    Browser.msgBox('Send failed: ' + res.getContentText());
+    Browser.msgBox('Could not send emails.\n\n' + describeFailure(res));
     return;
   }
 
@@ -224,6 +224,37 @@ function pushContacts() {
     }
   }
   Browser.msgBox(message);
+}
+
+/**
+ * Turn a failed response into one line a human can act on.
+ *
+ * The app answers 404 with a full HTML page, and printing that verbatim buries
+ * the one fact that matters — which is almost always "this version isn't
+ * deployed yet" — under six kilobytes of markup.
+ */
+function describeFailure(res) {
+  var code = res.getResponseCode();
+  var body = String(res.getContentText() || '');
+
+  if (code === 404) {
+    return (
+      'The app answered 404 — this endpoint is not deployed yet.\n' +
+      'Deploy the check-in app, then try again.'
+    );
+  }
+  if (code === 401) {
+    return 'Rejected the secret (401). Re-run setUp() and paste the current CRON_SECRET.';
+  }
+  if (code === 503) {
+    return 'The app has no CRON_SECRET configured (503). Set it in the hosting dashboard.';
+  }
+
+  // Anything else: show a short excerpt, and only if it isn't an HTML page.
+  if (body.indexOf('<!DOCTYPE') === 0 || body.indexOf('<html') === 0) {
+    return 'HTTP ' + code + ' — the app returned a web page instead of data.';
+  }
+  return 'HTTP ' + code + ' — ' + body.substring(0, 300);
 }
 
 function indexOfHeader(header, name) {

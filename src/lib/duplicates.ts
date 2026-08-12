@@ -78,6 +78,9 @@ export async function loadHouseholdGroups(): Promise<HouseholdGroup[]> {
               where d.household_id = h.id and d.status = 'sent') as emailed_at
        from households h
       where not h.is_test
+        -- Already folded into somebody's single pass. Including it would make
+        -- the group re-form on every run and the merge look like it failed.
+        and h.merged_into_id is null
       order by h.created_at, h.id`,
   )
 

@@ -98,6 +98,8 @@ type ExistingHousehold = {
   amount_paid_cents: number | null
   payment_status: PaymentStatus
   pass_enabled: boolean
+  /** Set when this purchase was folded into somebody else's single pass. */
+  merged_into_id: string | null
 }
 
 type PendingReview = {
@@ -151,10 +153,20 @@ export async function syncSheet(options: SyncOptions = {}): Promise<SyncSummary>
 
     const existing = await query<ExistingHousehold>(
       `select id, display_name, source_record_id, tickets_purchased, tickets_redeemed,
-              amount_paid_cents, payment_status, pass_enabled
+              amount_paid_cents, payment_status, pass_enabled, merged_into_id
          from households
         where source = $1 and source_record_id is not null`,
       [SHEETS_SOURCE],
+    )
+
+    // What each already-merged purchase contributed. A sheet row that still
+    // says what it said at merge time is not news; one that changed is.
+    const mergedTicketsMoved = new Map<string, number>(
+      (
+        await query<{ absorbed_id: string; tickets_moved: number }>(
+          `select absorbed_id, tickets_moved from household_merges`,
+        )
+      ).map((m) => [m.absorbed_id, m.tickets_moved]),
     )
 
     const byFingerprint = new Map(existing.map((h) => [h.source_record_id, h]))
@@ -180,7 +192,7 @@ export async function syncSheet(options: SyncOptions = {}): Promise<SyncSummary>
       if (match) {
         claimed.add(match.id)
         items.push(
-          await applyUpdate(row, match, { dryRun, importBatchId, reviews, audits }),
+          await applyUpdate(row, match, { dryRun, importBatchId, reviews, audits, mergedTicketsMoved }),
         )
         continue
       }
@@ -228,7 +240,7 @@ export async function syncSheet(options: SyncOptions = {}): Promise<SyncSummary>
         continue
       }
 
-      items.push(await applyCreate(row, { dryRun, importBatchId, reviews, audits }))
+      items.push(await applyCreate(row, { dryRun, importBatchId, reviews, audits, mergedTicketsMoved }))
     }
 
     // Skipped rows: Credit Card is expected (Square owns it); anything else is
@@ -341,6 +353,12 @@ type ApplyContext = {
   importBatchId: string | null
   reviews: PendingReview[]
   audits: PendingAudit[]
+  /**
+   * absorbed household id -> admissions it contributed at merge time. Lets an
+   * unchanged sheet row stay silent after a merge, while a genuinely edited one
+   * still raises a flag.
+   */
+  mergedTicketsMoved: Map<string, number>
 }
 
 function itemFromRow(row: ParsedRow): SyncItem {
@@ -472,7 +490,7 @@ async function applyCreate(row: ParsedRow, ctx: ApplyContext): Promise<SyncItem>
     if (!isUniqueViolation(err)) throw err
     const existing = await queryOne<ExistingHousehold>(
       `select id, display_name, source_record_id, tickets_purchased, tickets_redeemed,
-              amount_paid_cents, payment_status, pass_enabled
+              amount_paid_cents, payment_status, pass_enabled, merged_into_id
          from households where source = $1 and source_record_id = $2`,
       [SHEETS_SOURCE, row.fingerprint],
     )
@@ -488,6 +506,27 @@ async function applyUpdate(
 ): Promise<SyncItem> {
   const item = itemFromRow(row)
   item.householdId = existing.id
+
+  // This row's household was folded into somebody's single pass, and its own
+  // ticket count was zeroed so the admissions live in exactly one place. Writing
+  // the sheet's count back here would restore them a second time and hand the
+  // guest twice what they paid for — so the sync stops and asks for a human.
+  if (existing.merged_into_id) {
+    if (row.admissions !== ctx.mergedTicketsMoved.get(existing.id)) {
+      ctx.reviews.push({
+        kind: 'sheet_row_changed',
+        householdId: existing.merged_into_id,
+        sourceRecordId: row.fingerprint,
+        summary:
+          `Sheet row ${row.sheetRow} ("${row.displayName}") now says ${row.admissions} ` +
+          `admissions, but this purchase was merged into another pass. Adjust the ` +
+          `merged household by hand — the sync will not touch it.`,
+        payload: { sheetRow: row.sheetRow, admissions: row.admissions, mergedInto: existing.merged_into_id },
+      })
+    }
+    item.action = 'skip'
+    return item
+  }
 
   const desiredName = row.displayName || UNNAMED_PLACEHOLDER
   const changes: string[] = []

@@ -42,8 +42,22 @@ const COLUMNS = `
   square_order_id, is_test, notes, created_at, updated_at
 `
 
+/**
+ * Resolve a scanned or visited pass token.
+ *
+ * A token belonging to a merged-away purchase follows the pointer to the pass
+ * that now carries its admissions. Merges normally keep whichever row was
+ * already emailed, so this rarely fires — but if a guest ever holds the other
+ * code, it must open their real pass rather than a disabled husk showing zero.
+ */
 export async function findByToken(token: string): Promise<Household | null> {
-  return queryOne<Household>(`select ${COLUMNS} from households where pass_token = $1`, [token])
+  const found = await queryOne<Household & { merged_into_id: string | null }>(
+    `select ${COLUMNS}, merged_into_id from households where pass_token = $1`,
+    [token],
+  )
+  if (!found) return null
+  if (!found.merged_into_id) return found
+  return findById(found.merged_into_id)
 }
 
 export async function findById(id: string): Promise<Household | null> {
