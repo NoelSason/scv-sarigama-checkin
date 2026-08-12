@@ -263,8 +263,7 @@ export function renderPassEmail(
     `Hi ${name},`,
     '',
     isReminder
-      ? 'The Sadhya is nearly here. Final details are below, and your pass is'
-        + ' attached again so you do not have to go hunting for the first email.'
+      ? 'Onam is nearly here. Final details are below, and your pass is attached again.'
       : 'Your Onam payment has been received, and your Sadhya pass is ready.',
     ...(isReminder && detailLines.length ? ['', '--- FINAL DETAILS ---', ...detailLines] : []),
     '',
@@ -327,7 +326,7 @@ export function renderPassEmail(
             <p style="margin:0 0 14px 0;">Hi ${escapeHtml(name)},</p>
             <p style="margin:0;">${
               isReminder
-                ? 'The Sadhya is nearly here. Final details are below, and your pass is included again so you don&rsquo;t have to go hunting for the first email.'
+                ? 'Onam is nearly here. Final details are below, and your pass is included again.'
                 : 'Your Onam payment has been received, and your Sadhya pass is ready.'
             }</p>
           </td>
