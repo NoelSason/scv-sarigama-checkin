@@ -1,0 +1,252 @@
+/*
+ * The raffle stage.
+ *
+ * This is the one dark screen in the app, and the exception is deliberate:
+ * every other surface is held in a hand in daylight, this one is projected in
+ * a dim hall and read from the back of the room. The palette is the same Onam
+ * gold and green, inverted.
+ *
+ * Motion lives here and nowhere else, so the keyframes are scoped to
+ * .raffle-root rather than added to globals.css.
+ */
+
+.raffle-root {
+  --card-w: 170px;
+  --reel-h: 132px;
+
+  position: relative;
+  min-height: 100dvh;
+  overflow: hidden;
+  color: #f7f0dd;
+  background:
+    radial-gradient(120% 80% at 50% -10%, rgba(200, 149, 28, 0.28), transparent 60%),
+    radial-gradient(90% 70% at 15% 110%, rgba(28, 107, 74, 0.55), transparent 65%),
+    radial-gradient(80% 60% at 90% 100%, rgba(138, 100, 16, 0.35), transparent 60%),
+    #0b1a13;
+}
+
+@media (min-width: 640px) {
+  .raffle-root {
+    --card-w: 240px;
+    --reel-h: 168px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .raffle-root {
+    --card-w: 300px;
+    --reel-h: 212px;
+  }
+}
+
+/* Slow ambient wash so an idle stage doesn't look like a frozen screen. */
+.raffle-root::before {
+  content: '';
+  position: absolute;
+  inset: -25%;
+  pointer-events: none;
+  background: radial-gradient(closest-side, rgba(200, 149, 28, 0.16), transparent);
+  animation: raffle-wash 14s ease-in-out infinite alternate;
+}
+
+@keyframes raffle-wash {
+  from {
+    transform: translate3d(-8%, -4%, 0) scale(1);
+  }
+  to {
+    transform: translate3d(8%, 5%, 0) scale(1.15);
+  }
+}
+
+/* ---------------------------------------------------------------- the reel */
+
+.reel-window {
+  position: relative;
+  height: var(--reel-h);
+  overflow: hidden;
+  border-top: 1px solid rgba(247, 240, 221, 0.14);
+  border-bottom: 1px solid rgba(247, 240, 221, 0.14);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.12));
+  /* Cards must dissolve at the edges, not clip. A hard edge reads as a bug at
+     speed — it looks like names are being cut in half. */
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent);
+}
+
+/* The whole strip is one compositor layer. Blur is applied here, never to the
+   cards — blurring N nodes individually costs N rasterizations a frame. */
+.reel-track {
+  position: absolute;
+  inset: 0;
+  will-change: filter;
+}
+
+.reel-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--card-w);
+  height: 100%;
+  padding: 0 0.75rem;
+  text-align: center;
+  will-change: transform;
+  border-left: 1px solid rgba(247, 240, 221, 0.08);
+}
+
+/* Alternating tint. Without it a strip of same-coloured cards has no visible
+   texture and the deceleration is impossible to read. */
+.reel-card[data-alt='1'] {
+  background: rgba(247, 240, 221, 0.045);
+}
+
+.reel-card-name {
+  font-weight: 800;
+  font-size: clamp(0.95rem, 2.1vw, 1.5rem);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+/* The card sitting under the pointer once the reel is slow enough to read. */
+.reel-card[data-hot='1'] {
+  background: rgba(200, 149, 28, 0.22);
+}
+
+.reel-card[data-hot='1'] .reel-card-name {
+  color: #ffd977;
+}
+
+.reel-pointer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: var(--card-w);
+  transform: translateX(-50%);
+  pointer-events: none;
+  border-left: 2px solid rgba(255, 217, 119, 0.9);
+  border-right: 2px solid rgba(255, 217, 119, 0.9);
+  box-shadow:
+    0 0 24px rgba(255, 217, 119, 0.35),
+    inset 0 0 40px rgba(255, 217, 119, 0.08);
+}
+
+.reel-pointer::before,
+.reel-pointer::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  margin-left: -9px;
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+}
+
+.reel-pointer::before {
+  top: 0;
+  border-top: 11px solid #ffd977;
+}
+
+.reel-pointer::after {
+  bottom: 0;
+  border-bottom: 11px solid #ffd977;
+}
+
+/* ------------------------------------------------------------- the winner */
+
+.winner-panel {
+  animation: winner-pop 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes winner-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.72);
+    filter: blur(10px);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.06);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.winner-glow {
+  animation: winner-glow 2.6s ease-in-out infinite;
+}
+
+@keyframes winner-glow {
+  0%,
+  100% {
+    text-shadow: 0 0 26px rgba(255, 217, 119, 0.45);
+  }
+  50% {
+    text-shadow:
+      0 0 44px rgba(255, 217, 119, 0.85),
+      0 0 90px rgba(200, 149, 28, 0.4);
+  }
+}
+
+.stage-shake {
+  animation: stage-shake 520ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+@keyframes stage-shake {
+  10%,
+  90% {
+    transform: translate3d(-2px, 1px, 0);
+  }
+  20%,
+  80% {
+    transform: translate3d(5px, -2px, 0);
+  }
+  30%,
+  50%,
+  70% {
+    transform: translate3d(-9px, 2px, 0);
+  }
+  40%,
+  60% {
+    transform: translate3d(9px, -1px, 0);
+  }
+}
+
+.fade-up {
+  animation: fade-up 420ms ease-out both;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ------------------------------------------------------------- reduced motion
+   Reduce motion is not "slightly calmer" — it means no reel, no shake, no
+   confetti. The winner simply appears. Same outcome, none of the spinning. */
+@media (prefers-reduced-motion: reduce) {
+  .raffle-root::before,
+  .winner-glow,
+  .stage-shake {
+    animation: none;
+  }
+
+  .winner-panel,
+  .fade-up {
+    animation: fade-up 300ms ease-out both;
+  }
+}

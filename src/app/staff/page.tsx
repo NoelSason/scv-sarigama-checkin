@@ -27,9 +27,14 @@ export default async function StaffHome() {
         )}
 
         {staff.role === 'admin' && (
-          <Link href="/staff/admin" className="btn-neutral w-full py-6 text-lg">
-            ⚙ Admin dashboard
-          </Link>
+          <>
+            <Link href="/staff/admin" className="btn-neutral w-full py-6 text-lg">
+              ⚙ Admin dashboard
+            </Link>
+            <Link href="/raffle" className="btn-neutral w-full py-6 text-lg">
+              🎟 Raffle
+            </Link>
+          </>
         )}
       </div>
 

@@ -18,7 +18,9 @@ export default async function StaffLayout({ children }: { children: React.ReactN
       {/* On a phone every one of these labels wrapped to two lines, costing a
           third of the viewport above the camera. The brand shortens, the links
           stay on one line, and sign-out becomes an icon — it is the least-used
-          control and the only one that can afford to lose its word. */}
+          control and the only one that can afford to lose its word. Raffle,
+          added later, follows the same rule: it is a once-an-evening screen, so
+          on a phone it keeps the ticket and drops the word. */}
       <header className="sticky top-0 z-20 border-b border-black/10 bg-[var(--green-deep)] text-white">
         <div className="mx-auto flex max-w-3xl items-center gap-1 px-3 py-2">
           <Link href="/staff" className="shrink-0 font-black tracking-tight">
@@ -47,6 +49,18 @@ export default async function StaffLayout({ children }: { children: React.ReactN
                 className="whitespace-nowrap rounded-lg px-2.5 py-2 hover:bg-white/15 sm:px-3"
               >
                 Admin
+              </Link>
+            )}
+            {staff.role === 'admin' && (
+              <Link
+                href="/raffle"
+                aria-label="Raffle"
+                className="whitespace-nowrap rounded-lg px-2.5 py-2 hover:bg-white/15 sm:px-3"
+              >
+                <span aria-hidden className="sm:hidden">
+                  🎟
+                </span>
+                <span className="hidden sm:inline">Raffle</span>
               </Link>
             )}
             {/* Reachable from every screen: the moment a volunteer needs the

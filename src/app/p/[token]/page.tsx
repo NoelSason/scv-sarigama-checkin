@@ -24,6 +24,13 @@ export default async function PassPage({ params }: { params: Promise<{ token: st
   const isValid =
     household.pass_enabled && (household.payment_status === 'paid' || household.payment_status === 'comped')
 
+  // Raffle entries are narrower than admission: one per ticket actually bought.
+  // Complimentary passes get into the Sadhya but did not buy an entry, and the
+  // demo households are not real people. Neither sees this card at all —
+  // "0 entries" only invites a question a volunteer cannot answer.
+  const raffleEntries =
+    household.payment_status === 'paid' && !household.is_test ? household.tickets_purchased : 0
+
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col px-5 py-8">
       <header className="text-center">
@@ -50,6 +57,28 @@ export default async function PassPage({ params }: { params: Promise<{ token: st
             initialPurchased={household.tickets_purchased}
             initialRedeemed={household.tickets_redeemed}
           />
+
+          {/* Server-rendered, and deliberately not part of PassStatus: that
+              component polls the admissions balance, which falls all day.
+              Entries come from tickets bought and do not move, so this number
+              must never flicker in sympathy with the one above it. */}
+          {raffleEntries > 0 && (
+            <section className="mt-6 rounded-3xl border border-[var(--gold)]/40 bg-[var(--cream)] p-5 text-center">
+              <p className="text-sm font-bold uppercase tracking-widest text-[var(--gold-deep)]">
+                Raffle
+              </p>
+              <p className="mt-1 text-5xl font-black tabular-nums text-[var(--gold-deep)]">
+                {raffleEntries}
+              </p>
+              <p className="mt-1 text-lg font-semibold">
+                {raffleEntries === 1 ? 'entry in the raffle' : 'entries in the raffle'}
+              </p>
+              <p className="mt-2 text-sm leading-relaxed text-black/65">
+                Every ticket is one entry. Your entries stay in the draw whether or not you
+                use all your admissions — you don&apos;t need to be here to win.
+              </p>
+            </section>
+          )}
 
           {household.children_under_6 > 0 && (
             <p className="mt-4 rounded-xl bg-[var(--cream)] px-4 py-3 text-center text-sm">

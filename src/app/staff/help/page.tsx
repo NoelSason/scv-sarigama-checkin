@@ -196,6 +196,44 @@ export default async function HelpPage() {
 
       {/* ---------------------------------------------------------- */}
       <section className="card">
+        <h2 className="text-xl font-black">🎟 Raffle</h2>
+        <p className="mt-2 text-[15px] leading-relaxed">
+          At the end of the day, open <strong>Raffle</strong> from the menu and put it on the
+          projector. Type the prize, press SPIN, and the wheel lands on a name.
+        </p>
+        <ul className="mt-3 space-y-2 text-[15px] leading-relaxed">
+          <li>
+            • <strong>One entry per ticket.</strong> A family who bought ten tickets has ten
+            entries and is ten times as likely to win.
+          </li>
+          <li>
+            • <strong>Paid tickets only.</strong> Complimentary passes and the demo families are
+            not in the draw.
+          </li>
+          <li>
+            • <strong>Being here doesn&apos;t matter.</strong> Anyone who bought a ticket can win,
+            whether or not they came.
+          </li>
+          <li>
+            • A winner comes out of the pool the moment they&apos;re drawn, so nobody wins twice.
+          </li>
+          <li>
+            • Spun by accident, or typed the wrong prize? <strong>Undo this draw</strong> puts
+            that family straight back in.
+          </li>
+          <li>
+            • <strong>Reset raffle</strong> puts every winner back in at once — only use it if
+            you&apos;re starting the whole thing over.
+          </li>
+        </ul>
+        <p className="mt-3 text-[15px] leading-relaxed">
+          The winner is decided the instant you press SPIN, before the wheel finishes. If the
+          laptop dies mid-spin, reload the page — the draw is already saved.
+        </p>
+      </section>
+
+      {/* ---------------------------------------------------------- */}
+      <section className="card">
         <h2 className="text-xl font-black">😬 Something looks wrong</h2>
         <p className="mt-2 text-[15px] leading-relaxed">
           Get the admin. Almost everything is fixable in about fifteen seconds, and every change

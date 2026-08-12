@@ -23,6 +23,9 @@ export default async function AdminPage() {
           <Link href="/staff/admin/roster" className="btn-neutral px-4 py-2">
             Paper roster
           </Link>
+          <Link href="/raffle" className="btn-gold px-4 py-2">
+            Raffle
+          </Link>
         </nav>
       </div>
 

@@ -23,8 +23,13 @@ let seq = 0
 const TEST_SOURCE = 'vitest'
 
 /**
- * Create a throwaway household. Always is_test = true so a stray row can
+ * Create a throwaway household. is_test = true by default so a stray row can
  * never be confused with a real guest, and purgeTestData() can clear it.
+ *
+ * The raffle tests pass isTest: false, because excluding is_test rows is the
+ * behaviour under test — a pool that only ever sees flagged rows would pass
+ * every assertion for the wrong reason. Those rows are still source = 'vitest',
+ * still named "TEST …", and still purged by source.
  */
 export async function makeHousehold(opts: {
   purchased?: number
@@ -33,13 +38,14 @@ export async function makeHousehold(opts: {
   enabled?: boolean
   under6?: number
   name?: string
+  isTest?: boolean
 }): Promise<Household> {
   const name = opts.name ?? `TEST Household ${Date.now()}-${seq++}`
   const row = await queryOne<Household>(
     `insert into households
        (display_name, tickets_purchased, tickets_redeemed, children_under_6,
         payment_status, pass_enabled, pass_token, is_test, source)
-     values ($1, $2, $3, $4, $5::payment_status, $6, $7, true, $8)
+     values ($1, $2, $3, $4, $5::payment_status, $6, $7, $9, $8)
      returning *`,
     [
       name,
@@ -50,6 +56,7 @@ export async function makeHousehold(opts: {
       opts.enabled ?? true,
       generatePassToken(),
       TEST_SOURCE,
+      opts.isTest ?? true,
     ],
   )
   if (!row) throw new Error('failed to create test household')
@@ -128,6 +135,9 @@ export async function purgeTestData(): Promise<void> {
     'audit_logs',
     'redemption_adjustments',
     'redemptions',
+    // raffle_draws references households with ON DELETE RESTRICT, so it has to
+    // go before the households delete or the whole purge fails.
+    'raffle_draws',
     'email_deliveries',
     'review_items',
   ]) {
