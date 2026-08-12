@@ -34,8 +34,17 @@ type Winner = {
   poolHouseholds: number
 }
 
+/**
+ * `nextState` rides along through the spin instead of being applied when the
+ * draw returns. The database decides the winner the moment SPIN is pressed, so
+ * the new pool — winners list one longer, counter one name shorter — is
+ * available six seconds before the wheel stops. Showing it then announces the
+ * result while the names are still moving. It lands with the reel.
+ */
 type Phase =
-  { kind: 'idle' } | { kind: 'spinning'; winner: Winner } | { kind: 'won'; winner: Winner }
+  | { kind: 'idle' }
+  | { kind: 'spinning'; winner: Winner; nextState: RaffleState }
+  | { kind: 'won'; winner: Winner }
 
 const REDUCED_MOTION = '(prefers-reduced-motion: reduce)'
 
@@ -73,7 +82,7 @@ function shuffled(items: string[]): string[] {
 // venue wifi. The SPIN click is the gesture that unlocks the AudioContext.
 // ---------------------------------------------------------------------------
 
-function useStageAudio(mutedRef: React.RefObject<boolean>) {
+function useStageAudio() {
   const ctxRef = useRef<AudioContext | null>(null)
 
   const unlock = useCallback(() => {
@@ -89,7 +98,7 @@ function useStageAudio(mutedRef: React.RefObject<boolean>) {
   const blip = useCallback(
     (freq: number, ms: number, peak: number, type: OscillatorType = 'square') => {
       const ac = ctxRef.current
-      if (!ac || mutedRef.current) return
+      if (!ac) return
       const t = ac.currentTime
       const osc = ac.createOscillator()
       const gain = ac.createGain()
@@ -102,19 +111,18 @@ function useStageAudio(mutedRef: React.RefObject<boolean>) {
       osc.start(t)
       osc.stop(t + ms / 1000 + 0.02)
     },
-    [mutedRef],
+    [],
   )
 
   const tick = useCallback(() => blip(1250 + Math.random() * 260, 45, 0.05), [blip])
 
   /** A rising major triad on the landing. Short — the room is about to cheer. */
   const fanfare = useCallback(() => {
-    const ac = ctxRef.current
-    if (!ac || mutedRef.current) return
+    if (!ctxRef.current) return
     ;[523.25, 659.25, 783.99, 1046.5].forEach((f, i) => {
       window.setTimeout(() => blip(f, 620, 0.09, 'triangle'), i * 105)
     })
-  }, [blip, mutedRef])
+  }, [blip])
 
   // Stable identity: this object ends up in the dependency list of the spin
   // handler, and a fresh one every render would defeat every useCallback here.
@@ -397,25 +405,20 @@ export function RaffleStage({ initial }: { initial: RaffleState }) {
   const [prize, setPrize] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [muted, setMuted] = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
   const [shake, setShake] = useState(false)
 
   const reduced = usePrefersReducedMotion()
 
   const reelRef = useRef<ReelHandle | null>(null)
-  const mutedRef = useRef(muted)
-
-  useEffect(() => {
-    mutedRef.current = muted
-  }, [muted])
-
-  const audio = useStageAudio(mutedRef)
+  const audio = useStageAudio()
 
   const bag = useMemo(() => weightedBag(state.pool), [state.pool])
 
+  /** Everything the room is allowed to know lands at once, with the reel. */
   const land = useCallback(
-    (winner: Winner) => {
+    (winner: Winner, nextState: RaffleState) => {
+      setState(nextState)
       setPhase({ kind: 'won', winner })
       setBusy(false)
       audio.fanfare()
@@ -479,18 +482,21 @@ export function RaffleStage({ initial }: { initial: RaffleState }) {
       poolEntries: data.pool_entries!,
       poolHouseholds: data.pool_households!,
     }
-    if (data.state) setState(data.state)
+    // Held, not applied. Until the reel stops, the screen must still show the
+    // pool as it was — otherwise the winners list names the winner while the
+    // wheel is still turning.
+    const nextState = data.state ?? state
 
     if (reduced) {
-      land(winner)
+      land(winner, nextState)
       return
     }
 
-    setPhase({ kind: 'spinning', winner })
+    setPhase({ kind: 'spinning', winner, nextState })
     reelRef.current?.spin(buildStrip(weightedBag(data.spinPool ?? []), winner.name), () =>
-      land(winner),
+      land(winner, nextState),
     )
-  }, [audio, busy, land, phase.kind, prize, reduced])
+  }, [audio, busy, land, phase.kind, prize, reduced, state])
 
   const nextDraw = useCallback(() => {
     setPrize('')
@@ -561,20 +567,10 @@ export function RaffleStage({ initial }: { initial: RaffleState }) {
             <h1 className="mt-1 text-3xl font-black tracking-tight sm:text-4xl">Raffle</h1>
           </div>
 
-          {/* On a phone "🔊 Sound on" wrapped to three lines and ate a third of
-              the header. The word goes away below sm; the speaker alone is
-              unambiguous once you know it toggles. */}
+          {/* No mute control: the ticking reel and the fanfare are the point of
+              this screen, and a toggle up here is one more thing to knock by
+              accident mid-draw. Volume lives on the laptop. */}
           <div className="flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setMuted((m) => !m)}
-              aria-pressed={muted}
-              aria-label={muted ? 'Turn sound on' : 'Turn sound off'}
-              className="whitespace-nowrap rounded-xl border border-white/20 px-3 py-2 text-sm font-semibold text-white/80 hover:bg-white/10"
-            >
-              {muted ? '🔇' : '🔊'}
-              <span className="hidden sm:inline"> {muted ? 'Sound off' : 'Sound on'}</span>
-            </button>
             <a
               href="/staff"
               className="whitespace-nowrap rounded-xl border border-white/20 px-3 py-2 text-sm font-semibold text-white/80 hover:bg-white/10"

@@ -18,9 +18,13 @@ export default async function StaffLayout({ children }: { children: React.ReactN
       {/* On a phone every one of these labels wrapped to two lines, costing a
           third of the viewport above the camera. The brand shortens, the links
           stay on one line, and sign-out becomes an icon — it is the least-used
-          control and the only one that can afford to lose its word. Raffle,
-          added later, follows the same rule: it is a once-an-evening screen, so
-          on a phone it keeps the ticket and drops the word. */}
+          control and the only one that can afford to lose its word.
+
+          Adding Raffle overflowed a 360px phone, so the rule now applies to
+          three: Admin, Raffle and sign-out are icons below sm. None of them is
+          a mid-queue control. Scan, Desk and Help keep their words, because
+          those are the ones a volunteer hunts for with a queue in front of
+          them. */}
       <header className="sticky top-0 z-20 border-b border-black/10 bg-[var(--green-deep)] text-white">
         <div className="mx-auto flex max-w-3xl items-center gap-1 px-3 py-2">
           <Link href="/staff" className="shrink-0 font-black tracking-tight">
@@ -31,43 +35,47 @@ export default async function StaffLayout({ children }: { children: React.ReactN
           <nav className="ml-auto flex items-center gap-0.5 text-sm font-semibold">
             <Link
               href="/staff/scan"
-              className="whitespace-nowrap rounded-lg px-2.5 py-2 hover:bg-white/15 sm:px-3"
+              className="whitespace-nowrap rounded-lg px-2 py-2 hover:bg-white/15 sm:px-3"
             >
               Scan
             </Link>
             {(staff.role === 'registration' || staff.role === 'admin') && (
               <Link
                 href="/staff/registration"
-                className="whitespace-nowrap rounded-lg px-2.5 py-2 hover:bg-white/15 sm:px-3"
+                className="whitespace-nowrap rounded-lg px-2 py-2 hover:bg-white/15 sm:px-3"
               >
                 Desk
               </Link>
             )}
             {staff.role === 'admin' && (
-              <Link
-                href="/staff/admin"
-                className="whitespace-nowrap rounded-lg px-2.5 py-2 hover:bg-white/15 sm:px-3"
-              >
-                Admin
-              </Link>
-            )}
-            {staff.role === 'admin' && (
-              <Link
-                href="/raffle"
-                aria-label="Raffle"
-                className="whitespace-nowrap rounded-lg px-2.5 py-2 hover:bg-white/15 sm:px-3"
-              >
-                <span aria-hidden className="sm:hidden">
-                  🎟
-                </span>
-                <span className="hidden sm:inline">Raffle</span>
-              </Link>
+              <>
+                <Link
+                  href="/staff/admin"
+                  aria-label="Admin dashboard"
+                  className="whitespace-nowrap rounded-lg px-2 py-2 hover:bg-white/15 sm:px-3"
+                >
+                  <span aria-hidden className="sm:hidden">
+                    ⚙
+                  </span>
+                  <span className="hidden sm:inline">Admin</span>
+                </Link>
+                <Link
+                  href="/raffle"
+                  aria-label="Raffle"
+                  className="whitespace-nowrap rounded-lg px-2 py-2 hover:bg-white/15 sm:px-3"
+                >
+                  <span aria-hidden className="sm:hidden">
+                    🎟
+                  </span>
+                  <span className="hidden sm:inline">Raffle</span>
+                </Link>
+              </>
             )}
             {/* Reachable from every screen: the moment a volunteer needs the
                 instructions is the moment they are stuck mid-queue. */}
             <Link
               href="/staff/help"
-              className="whitespace-nowrap rounded-lg px-2.5 py-2 hover:bg-white/15 sm:px-3"
+              className="whitespace-nowrap rounded-lg px-2 py-2 hover:bg-white/15 sm:px-3"
               aria-label="How to do this"
             >
               Help
@@ -77,7 +85,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
                 type="submit"
                 title="Sign out"
                 aria-label="Sign out"
-                className="whitespace-nowrap rounded-lg px-2.5 py-2 hover:bg-white/15 sm:px-3"
+                className="whitespace-nowrap rounded-lg px-2 py-2 hover:bg-white/15 sm:px-3"
               >
                 <span aria-hidden className="sm:hidden">
                   ⏻
