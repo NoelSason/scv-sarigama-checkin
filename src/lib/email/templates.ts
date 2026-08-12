@@ -56,6 +56,12 @@ export type EventDetails = {
 
 export type PassEmailOptions = {
   variant?: PassEmailVariant
+  /**
+   * A short line shown above everything else — an apology, a correction, a
+   * "this replaces the earlier one". Sits at the top because a reader who has
+   * already had two of these will not scroll to find out why.
+   */
+  notice?: string | null
   event?: EventDetails
   /**
    * Content id of the embedded QR image. Omitted, the QR panel is replaced by
@@ -240,7 +246,7 @@ export function renderPassEmail(
   passHref: string,
   options: PassEmailOptions = {},
 ): RenderedEmail {
-  const { event = eventDetails(), qrCid = null, variant = 'pass' } = options
+  const { event = eventDetails(), qrCid = null, variant = 'pass', notice = null } = options
   const isReminder = variant === 'reminder'
 
   const name = firstName(household.display_name)
@@ -262,6 +268,7 @@ export function renderPassEmail(
     '',
     `Hi ${name},`,
     '',
+    ...(notice ? [notice, ''] : []),
     isReminder
       ? 'Onam is nearly here. Final details are below, and your pass is attached again.'
       : 'Your Onam payment has been received, and your Sadhya pass is ready.',
@@ -324,6 +331,13 @@ export function renderPassEmail(
         <tr>
           <td style="padding:18px 30px 0 30px;background-color:${CARD};font-family:${FONT};font-size:17px;line-height:1.6;color:${INK};">
             <p style="margin:0 0 14px 0;">Hi ${escapeHtml(name)},</p>
+            ${
+              notice
+                ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#FFF1D6;border:1px solid ${GOLD};border-radius:12px;margin:0 0 16px 0;">
+                     <tr><td style="padding:13px 16px;background-color:#FFF1D6;border-radius:12px;font-family:${FONT};font-size:15px;line-height:1.55;color:#7a4d05;">${escapeHtml(notice)}</td></tr>
+                   </table>`
+                : ''
+            }
             <p style="margin:0;">${
               isReminder
                 ? 'Onam is nearly here. Final details are below, and your pass is included again.'

@@ -44,6 +44,85 @@ function autoSendEnabled(): boolean {
   return (process.env.AUTO_SEND_PASSES ?? '').trim().toLowerCase() !== 'off'
 }
 
+/**
+ * Fold repeat purchases together, but only where the evidence is strong.
+ *
+ * Same email address is strong: two Square checkouts from one account is not a
+ * coincidence, and merging is safe to do without asking.
+ *
+ * Same name and nothing else is not. Every Zelle row arrives without an email or
+ * phone, so name is all there is, and two families sharing a full name is
+ * unlikely rather than impossible. The cost of being wrong is folding strangers'
+ * tickets onto one pass — so those are flagged for a human to confirm against
+ * the sheet, and left alone in the meantime.
+ *
+ * Already-emailed passes survive a merge: the absorbed row keeps a pointer to
+ * the survivor and `findByToken` follows it, so a QR already sitting in
+ * somebody's inbox still opens the right pass and still scans at the door.
+ */
+async function autoMergeConfidentDuplicates(): Promise<number> {
+  const { loadHouseholdGroups } = await import('@/lib/duplicates')
+  const { planMerge, applyMerge } = await import('@/lib/merge')
+
+  const groups = await loadHouseholdGroups()
+  const duplicates = groups.filter((g) => g.members.length > 1)
+  if (duplicates.length === 0) return 0
+
+  let mergedCount = 0
+
+  for (const group of duplicates) {
+    if (group.basis === 'email') {
+      const plan = planMerge(group)
+      if (!plan) continue
+      try {
+        await applyMerge(plan)
+        mergedCount++
+        await logAudit('households_auto_merged', {
+          actorType: 'system',
+          householdId: plan.survivor.id,
+          metadata: {
+            reason: 'same email address',
+            absorbed: plan.absorbed.map((a) => a.id),
+            ticketsBefore: plan.ticketsBefore,
+            ticketsAfter: plan.ticketsAfter,
+            name: group.primaryName,
+          },
+        })
+      } catch (err) {
+        console.error(`[dispatch] auto-merge failed for ${group.primaryName}:`, err)
+      }
+      continue
+    }
+
+    // Name-only match: record it and move on. The unique index on
+    // (kind, source, source_record_id) keeps this to one open item per group
+    // however often the sync runs.
+    await query(
+      `insert into review_items (kind, household_id, source, source_record_id, summary, payload)
+       values ('possible_duplicate', $1, 'auto-merge', $2, $3, $4::jsonb)
+       on conflict do nothing`,
+      [
+        group.members[0].id,
+        `name:${group.key}`,
+        `"${group.primaryName}" appears ${group.members.length} times with the same name but no ` +
+          `shared email (${group.ticketsByPurchase.join(' + ')} = ${group.mergedTickets} admissions). ` +
+          `Confirm in the sheet whether this is one person before merging.`,
+        JSON.stringify({
+          name: group.primaryName,
+          members: group.members.map((m) => ({
+            id: m.id,
+            tickets: m.ticketsPurchased,
+            source: m.source,
+          })),
+          mergedTickets: group.mergedTickets,
+        }),
+      ],
+    )
+  }
+
+  return mergedCount
+}
+
 export async function dispatchPendingPasses(
   reason: string,
   limit = MAX_PER_RUN,
@@ -74,7 +153,23 @@ export async function dispatchPendingPasses(
     return { sent: 0, failed: 0, skipped: 'test-redirect', recipients: [] }
   }
 
-  // The gate mirrors sendPassEmail() exactly, plus "has never had one".
+  // ALWAYS before selecting anyone. A second purchase creates a second
+  // household, and mailing that on its own hands the guest a pass for the new
+  // ticket alone while their real total sits split across two codes.
+  const merged = await autoMergeConfidentDuplicates()
+  if (merged > 0) console.log(`[dispatch] auto-merged ${merged} repeat buyer(s) before sending`)
+
+  /**
+   * Two conditions, and the second is the one that makes repeat purchases work.
+   *
+   *   never sent   — no delivery has reached this guest's address
+   *   now stale    — the last one was sent when they had a different number of
+   *                  admissions, so it understates what they now hold
+   *
+   * Without the second, somebody who buys again keeps an email claiming 2 while
+   * the ledger says 5, and nothing ever corrects it because a pass was, in the
+   * narrowest sense, sent.
+   */
   const pending = await query<Household>(
     `select h.*
        from households h
@@ -83,16 +178,20 @@ export async function dispatchPendingPasses(
         and h.pass_enabled
         and h.payment_status in ('paid', 'comped')
         and coalesce(trim(h.email), '') <> ''
-        and not exists (
-          select 1 from email_deliveries d
-           where d.household_id = h.id
-             and d.kind = 'pass'
-             and d.status = 'sent'
-             -- Must have reached THIS guest. A delivery recorded against a
-             -- different address (a redirect, or an address later corrected)
-             -- is not evidence that they hold a pass.
-             and lower(d.to_email) = lower(trim(h.email))
-        )
+        and coalesce(
+              (select d.tickets_at_send
+                 from email_deliveries d
+                where d.household_id = h.id
+                  and d.kind = 'pass'
+                  and d.status = 'sent'
+                  -- Must have reached THIS guest. A delivery recorded against a
+                  -- different address (a redirect, or an address later
+                  -- corrected) is not evidence that they hold a pass.
+                  and lower(d.to_email) = lower(trim(h.email))
+                order by d.sent_at desc nulls last
+                limit 1),
+              -1
+            ) <> h.tickets_purchased
       order by h.created_at
       limit $1`,
     [limit],

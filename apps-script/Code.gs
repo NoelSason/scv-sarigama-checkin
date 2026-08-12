@@ -527,13 +527,24 @@ function pullWalkIns(secret) {
 
   var sheet = SpreadsheetApp.getActive().getSheetByName(TAB_NAME);
 
-  // Insert above the trailing "Total" row rather than after it, so the sheet's
-  // own sum keeps covering every row.
+  // Insert directly after the last row that actually names somebody.
+  //
+  // Not simply "above the Total row": the sheet carries a block of leftover
+  // template rows between the last real entry and the total — no name, no
+  // amount, but drag-filled checkboxes, which is enough for getLastRow() to
+  // count them. Inserting above Total therefore dropped every new card sale
+  // below that gap, far from the rows a human is reading.
+  //
+  // Still never below the Total row, so the sheet's own sum keeps covering
+  // everything.
   var lastRow = sheet.getLastRow();
   var totalRowIndex = findTotalRow(sheet, lastRow);
-  var startRow = totalRowIndex > 0 ? totalRowIndex : lastRow + 1;
+  var startRow = findLastNamedRow(sheet, lastRow) + 1;
 
-  if (totalRowIndex > 0) sheet.insertRowsBefore(totalRowIndex, data.values.length);
+  if (totalRowIndex > 0 && startRow > totalRowIndex) startRow = totalRowIndex;
+  if (startRow < 2) startRow = totalRowIndex > 0 ? totalRowIndex : lastRow + 1;
+
+  sheet.insertRowsBefore(startRow, data.values.length);
 
   sheet
     .getRange(startRow, 1, data.values.length, data.values[0].length)
@@ -556,6 +567,20 @@ function pullWalkIns(secret) {
   }
 
   return 'walk-ins: ' + data.values.length + ' appended';
+}
+
+/**
+ * The last row carrying a real purchaser name, ignoring the trailing block of
+ * blank template rows and the Total row itself. 1 if the sheet has none.
+ */
+function findLastNamedRow(sheet, lastRow) {
+  if (lastRow < 2) return 1;
+  var names = sheet.getRange(1, 2, lastRow, 1).getDisplayValues();
+  for (var i = names.length - 1; i >= 1; i--) {
+    var value = String(names[i][0]).trim();
+    if (value && value.toLowerCase() !== 'total') return i + 1; // getRange is 1-based
+  }
+  return 1;
 }
 
 /** The sheet ends with a `Total` row; returns its index, or 0 if absent. */

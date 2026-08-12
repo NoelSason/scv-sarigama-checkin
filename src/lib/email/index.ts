@@ -51,6 +51,8 @@ export async function sendPassEmail(
    * later reminder still reaches everyone exactly once.
    */
   variant: PassEmailVariant = 'pass',
+  /** One-off extras. Empty for every ordinary send. */
+  extra: { notice?: string | null; cc?: string[] } = {},
 ): Promise<SendPassResult> {
   const to = household.email?.trim()
   if (!to) {
@@ -71,15 +73,21 @@ export async function sendPassEmail(
   const qr = await renderPassQr(href)
   const message = {
     to,
-    ...renderPassEmail(household, href, { qrCid: qr ? QR_CID : null, variant }),
+    ...renderPassEmail(household, href, {
+      qrCid: qr ? QR_CID : null,
+      variant,
+      notice: extra.notice ?? null,
+    }),
+    cc: extra.cc?.length ? extra.cc : undefined,
     attachments: qr ? [qr] : undefined,
   }
 
   const row = await queryOne<{ id: string }>(
-    `insert into email_deliveries (household_id, to_email, subject, status, provider, kind)
-     values ($1, $2, $3, 'pending', $4, $5)
+    `insert into email_deliveries
+       (household_id, to_email, subject, status, provider, kind, tickets_at_send)
+     values ($1, $2, $3, 'pending', $4, $5, $6)
      returning id`,
-    [household.id, to, message.subject, provider.name, variant],
+    [household.id, to, message.subject, provider.name, variant, household.tickets_purchased],
   )
   const deliveryId = row!.id
 
