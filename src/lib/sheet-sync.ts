@@ -161,13 +161,23 @@ export async function syncSheet(options: SyncOptions = {}): Promise<SyncSummary>
 
     // What each already-merged purchase contributed. A sheet row that still
     // says what it said at merge time is not news; one that changed is.
+    const merges = await query<{
+      absorbed_id: string
+      survivor_id: string
+      tickets_moved: number
+    }>(`select absorbed_id, survivor_id, tickets_moved from household_merges`)
+
     const mergedTicketsMoved = new Map<string, number>(
-      (
-        await query<{ absorbed_id: string; tickets_moved: number }>(
-          `select absorbed_id, tickets_moved from household_merges`,
-        )
-      ).map((m) => [m.absorbed_id, m.tickets_moved]),
+      merges.map((m) => [m.absorbed_id, m.tickets_moved]),
     )
+
+    const mergedTicketsBySurvivor = new Map<string, number>()
+    for (const m of merges) {
+      mergedTicketsBySurvivor.set(
+        m.survivor_id,
+        (mergedTicketsBySurvivor.get(m.survivor_id) ?? 0) + m.tickets_moved,
+      )
+    }
 
     const byFingerprint = new Map(existing.map((h) => [h.source_record_id, h]))
     const items: SyncItem[] = []
@@ -192,7 +202,7 @@ export async function syncSheet(options: SyncOptions = {}): Promise<SyncSummary>
       if (match) {
         claimed.add(match.id)
         items.push(
-          await applyUpdate(row, match, { dryRun, importBatchId, reviews, audits, mergedTicketsMoved }),
+          await applyUpdate(row, match, { dryRun, importBatchId, reviews, audits, mergedTicketsMoved, mergedTicketsBySurvivor }),
         )
         continue
       }
@@ -240,7 +250,7 @@ export async function syncSheet(options: SyncOptions = {}): Promise<SyncSummary>
         continue
       }
 
-      items.push(await applyCreate(row, { dryRun, importBatchId, reviews, audits, mergedTicketsMoved }))
+      items.push(await applyCreate(row, { dryRun, importBatchId, reviews, audits, mergedTicketsMoved, mergedTicketsBySurvivor }))
     }
 
     // Skipped rows: Credit Card is expected (Square owns it); anything else is
@@ -359,6 +369,8 @@ type ApplyContext = {
    * still raises a flag.
    */
   mergedTicketsMoved: Map<string, number>
+  /** survivor household id -> total admissions merged into it. */
+  mergedTicketsBySurvivor: Map<string, number>
 }
 
 function itemFromRow(row: ParsedRow): SyncItem {
@@ -534,7 +546,12 @@ async function applyUpdate(
   // Guardrail: tickets_purchased can never drop below what the door already
   // took. The CHECK constraint would reject it anyway; catching it here turns
   // a failed sync into a review item.
-  let tickets = row.admissions
+  // A survivor's pass carries its own sheet row PLUS every purchase merged into
+  // it. Writing the bare sheet figure here would silently strip the merged
+  // admissions on the next sync — the guest keeps the pass but loses the meals
+  // they paid for, and nothing in the app looks wrong.
+  const absorbed = ctx.mergedTicketsBySurvivor.get(existing.id) ?? 0
+  let tickets = row.admissions + absorbed
   if (tickets < existing.tickets_redeemed) {
     ctx.reviews.push({
       kind: 'sheet_row_changed',

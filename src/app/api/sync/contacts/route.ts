@@ -168,8 +168,16 @@ export async function POST(req: Request) {
     }
 
     for (const id of refs) {
+      // Follow a merge. A tab printed before the merge still carries the
+      // absorbed row's id, and an address written there would land on a row
+      // nothing reads — the guest would look like they still had no email.
       const existing = await query<{ id: string; email: string | null; display_name: string }>(
-        `select id, email, display_name from households where id = $1 and not is_test`,
+        `select coalesce(s.id, h.id)       as id,
+                coalesce(s.email, h.email) as email,
+                coalesce(s.display_name, h.display_name) as display_name
+           from households h
+           left join households s on s.id = h.merged_into_id
+          where h.id = $1 and not h.is_test`,
         [id],
       )
       if (existing.length === 0) {
@@ -187,15 +195,18 @@ export async function POST(req: Request) {
         continue
       }
 
+      // The RESOLVED id, not the one from the sheet: after a merge those differ,
+      // and writing to the absorbed row would silently do nothing useful.
+      const target = existing[0].id
       if (body.commit) {
         await query(
           `update households set email = $2, normalized_email = $3 where id = $1`,
-          [id, raw.trim(), email],
+          [target, raw.trim(), email],
         )
         await logAudit('contact_email_filled', {
           actorType: 'import',
-          householdId: id,
-          metadata: { email: raw.trim(), via: 'contacts tab' },
+          householdId: target,
+          metadata: { email: raw.trim(), via: 'contacts tab', sheetRef: id },
         })
       }
       outcome.filled++
