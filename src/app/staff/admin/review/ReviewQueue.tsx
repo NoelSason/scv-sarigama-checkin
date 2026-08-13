@@ -36,6 +36,16 @@ const GUIDANCE: Record<string, string> = {
   webhook_error:
     'A Square webhook was received but could not be processed. Square will not retry it. Check the raw payload and reconcile manually.',
   missing_data: 'A record was missing something required, so no admissions were granted.',
+  partial_refund:
+    'Stripe returned part of a payment. How many admissions to remove is a judgement call, so nothing was changed automatically — the household is only marked partially refunded. Adjust the counts by hand.',
+  refund_after_merge:
+    'A Stripe order was refunded after its household had been merged into another. The surviving household still carries this order’s admissions — subtract them by hand; other orders’ tickets live on the same row, so nothing was changed automatically.',
+  refund_before_paid:
+    'A Stripe refund arrived before the payment event for the same order, so no household or pass was ever created. Confirm the refund in Stripe and close this — there is nothing to undo.',
+  passes_not_sending:
+    'Pass emails are switched off, so guests who have paid are not receiving their tickets. ' +
+    'Turn sending back on and everyone still owed a pass gets one automatically — nobody is skipped. ' +
+    'This closes itself once passes start going out again.',
 }
 
 export function ReviewQueue({ items }: { items: ReviewItem[] }) {

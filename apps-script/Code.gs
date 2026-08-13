@@ -7,7 +7,9 @@
  * What it does: every few minutes (and on edit), it sends the "Form Responses 1"
  * grid to the check-in app. The app decides what any of it means — this script
  * is deliberately a dumb pipe, so nobody has to keep two copies of the rules in
- * sync when a column moves.
+ * sync when a column moves. The same run pulls walk-ins back into the ledger
+ * and appends paid Stripe orders from pay.scvsarigama.com to their own
+ * "Stripe Orders" tab.
  *
  * Safe to run as often as you like. Rows that haven't changed do nothing.
  * A row that was edited in a way we can't match confidently becomes a review
@@ -34,6 +36,24 @@ var CONTACTS_TAB = 'Pass Contacts';
  */
 var ANALYTICS_TAB = 'Event Analytics';
 var ANALYTICS_ENDPOINT = 'https://checkin.scvsarigama.com/api/sync/analytics';
+
+/**
+ * Paid orders from the pay.scvsarigama.com storefront. Their own tab, not the
+ * ledger: an order carries sponsorships, donations, and the Onam program
+ * registration answers, none of which have a column in "Form Responses 1".
+ * (The household behind each order still flows into the ledger through the
+ * walk-ins pull, so the money total stays complete.)
+ */
+var STRIPE_ORDERS_TAB = 'Stripe Orders';
+var STRIPE_ORDERS_ENDPOINT = 'https://checkin.scvsarigama.com/api/sync/stripe-orders';
+
+/** Must match the column order the endpoint sends — 18 columns. */
+var STRIPE_ORDERS_HEADER = [
+  'Timestamp', 'Order #', 'Name', 'Email', 'Phone', 'Total $',
+  'Adults (6+)', 'Under 6', 'Gold', 'Silver', 'Donation $',
+  'Performing?', 'Individual or Group', 'Performer name', 'Members',
+  'Performance type', 'Media?', 'Stage/requirements',
+];
 
 /**
  * Run this ONCE and paste the secret when prompted.
@@ -83,7 +103,8 @@ function installTrigger() {
       'Every 5 minutes, on their own:\n' +
       '  · Form Responses  ->  the app (also instantly on edit)\n' +
       '  · ' + CONTACTS_TAB + '  ->  emails sent, then tab rebuilt\n' +
-      '  · ' + ANALYTICS_TAB + '  ->  new events appended'
+      '  · ' + ANALYTICS_TAB + '  ->  new events appended\n' +
+      '  · ' + STRIPE_ORDERS_TAB + '  ->  new paid orders appended'
   );
 }
 
@@ -406,6 +427,10 @@ function pullAnalytics() {
       sheet.getRange(1, 1, 1, data.headers.length)
         .setFontWeight('bold').setBackground('#124a33').setFontColor('#ffffff');
       sheet.setColumnWidth(data.headers.length, 60); // event id: present, not prominent
+    } else if (page === 0) {
+      // The tab was created before the feed moved to Pacific time; bring its
+      // header — and the timestamps written under the old one — into line.
+      convertAnalyticsToPacific_(sheet, data.headers);
     }
 
     var fresh = [];
@@ -428,6 +453,53 @@ function pullAnalytics() {
     console.log('analytics: ' + total + ' new event(s)');
   }
   return total;
+}
+
+/**
+ * The analytics tab used to record UTC. Everyone reading it is in California, so
+ * the column now holds Pacific time — which means the rows written under the old
+ * heading have to be shifted too, or the tab would mix two clocks under one
+ * label. Recognising the old heading is the whole trigger: once it is gone the
+ * work is done, so this costs one string compare per run afterwards.
+ */
+/** California's distance from UTC around a given moment, in milliseconds. */
+function pacificOffsetMs_(when) {
+  var z = Utilities.formatDate(when, 'America/Los_Angeles', 'Z'); // e.g. "-0700"
+  var sign = z.charAt(0) === '-' ? -1 : 1;
+  var hours = parseInt(z.substr(1, 2), 10);
+  var minutes = parseInt(z.substr(3, 2), 10);
+  return sign * (hours * 60 + minutes) * 60 * 1000;
+}
+
+function convertAnalyticsToPacific_(sheet, headers) {
+  if (String(sheet.getRange(1, 1).getValue()).indexOf('UTC') === -1) return;
+
+  var last = sheet.getLastRow();
+  if (last > 1) {
+    var when = sheet.getRange(2, 1, last - 1, 1);
+    var stamps = when.getValues();
+    for (var i = 0; i < stamps.length; i++) {
+      var cell = stamps[i][0];
+      if (cell instanceof Date) {
+        // Sheets parsed the feed's text into a real date, so the fix is to move
+        // the instant back by California's offset at that moment; what the cell
+        // shows moves with it.
+        stamps[i][0] = new Date(cell.getTime() + pacificOffsetMs_(cell));
+        continue;
+      }
+      var raw = String(cell).trim();
+      // Only the exact shape the feed writes; anything else is left alone
+      // rather than guessed at.
+      if (!/^\d{4}-\d{2}-\d{2} \d{1,2}:\d{2}:\d{2}$/.test(raw)) continue;
+      var utc = new Date(raw.replace(' ', 'T') + 'Z');
+      if (isNaN(utc.getTime())) continue;
+      stamps[i][0] = Utilities.formatDate(utc, 'America/Los_Angeles', 'yyyy-MM-dd HH:mm:ss');
+    }
+    when.setValues(stamps);
+  }
+
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  console.log('analytics: converted ' + Math.max(last - 1, 0) + ' row(s) to Pacific time');
 }
 
 function indexOfHeader(header, name) {
@@ -496,8 +568,12 @@ function syncNow() {
   // organizers' record of who paid is this sheet, so they have to come back.
   var appended = pullWalkIns(secret);
 
-  console.log('Check-in sync ok: ' + text + ' | ' + appended);
-  return text + ' | ' + appended;
+  // Same reason, different tab: storefront orders exist only in the app until
+  // this pulls them over.
+  var orders = pullStripeOrders(secret);
+
+  console.log('Check-in sync ok: ' + text + ' | ' + appended + ' | ' + orders);
+  return text + ' | ' + appended + ' | ' + orders;
 }
 
 /**
@@ -527,28 +603,32 @@ function pullWalkIns(secret) {
 
   var sheet = SpreadsheetApp.getActive().getSheetByName(TAB_NAME);
 
-  // Insert directly after the last row that actually names somebody.
+  // Write into the next free row, which is not the same as the next row.
   //
-  // Not simply "above the Total row": the sheet carries a block of leftover
-  // template rows between the last real entry and the total — no name, no
-  // amount, but drag-filled checkboxes, which is enough for getLastRow() to
-  // count them. Inserting above Total therefore dropped every new card sale
-  // below that gap, far from the rows a human is reading.
+  // The sheet carries a block of leftover template rows between the last real
+  // entry and the Total — no name, no amount, but drag-filled checkboxes. Those
+  // are the rows a person would use next, so they are the rows we use. Appending
+  // after the last name instead left every card sale stranded below that gap,
+  // far from the entries anyone is actually reading, and the gap never closed.
   //
-  // Still never below the Total row, so the sheet's own sum keeps covering
-  // everything.
+  // New rows are only inserted once the gap is full, and always above Total, so
+  // the sheet's own sum keeps covering everything.
   var lastRow = sheet.getLastRow();
-  var totalRowIndex = findTotalRow(sheet, lastRow);
-  var startRow = findLastNamedRow(sheet, lastRow) + 1;
+  var totalRow = findTotalRow(sheet, lastRow);
 
-  if (totalRowIndex > 0 && startRow > totalRowIndex) startRow = totalRowIndex;
-  if (startRow < 2) startRow = totalRowIndex > 0 ? totalRowIndex : lastRow + 1;
+  // The first row we are not allowed to overwrite: the Total, or the end of the
+  // sheet if somebody has removed it.
+  var floorRow = totalRow > 0 ? totalRow : lastRow + 1;
 
-  sheet.insertRowsBefore(startRow, data.values.length);
+  var startRow = findFirstFreeRow(sheet, floorRow);
+  var free = countFreeRowsFrom(sheet, startRow, floorRow);
+  var needed = data.values.length;
 
-  sheet
-    .getRange(startRow, 1, data.values.length, data.values[0].length)
-    .setValues(data.values);
+  // Only what the gap cannot absorb. Inserting right where the free rows run
+  // out keeps the whole batch contiguous, so it still writes in one go.
+  if (needed > free) sheet.insertRowsBefore(startRow + free, needed - free);
+
+  sheet.getRange(startRow, 1, needed, data.values[0].length).setValues(data.values);
   SpreadsheetApp.flush();
 
   var confirm = UrlFetchApp.fetch(WALKINS_ENDPOINT, {
@@ -570,17 +650,91 @@ function pullWalkIns(secret) {
 }
 
 /**
- * The last row carrying a real purchaser name, ignoring the trailing block of
- * blank template rows and the Total row itself. 1 if the sheet has none.
+ * Append paid storefront orders from pay.scvsarigama.com to their own tab.
+ *
+ * Same fetch-append-confirm shape as pullWalkIns: rows are only marked
+ * exported after the append lands in the sheet, so a failure mid-way means
+ * the next run retries instead of losing an order. Unlike the ledger, this
+ * tab is append-only — each order arrives exactly once, so a plain append at
+ * the bottom is all it takes.
  */
-function findLastNamedRow(sheet, lastRow) {
-  if (lastRow < 2) return 1;
-  var names = sheet.getRange(1, 2, lastRow, 1).getDisplayValues();
-  for (var i = names.length - 1; i >= 1; i--) {
-    var value = String(names[i][0]).trim();
-    if (value && value.toLowerCase() !== 'total') return i + 1; // getRange is 1-based
+function pullStripeOrders(secret) {
+  var res = UrlFetchApp.fetch(STRIPE_ORDERS_ENDPOINT, {
+    method: 'get',
+    headers: { Authorization: 'Bearer ' + secret },
+    muteHttpExceptions: true,
+  });
+
+  if (res.getResponseCode() !== 200) {
+    console.error('stripe orders fetch failed: ' + describeFailure(res));
+    return 'orders: fetch failed';
   }
-  return 1;
+
+  var data = JSON.parse(res.getContentText());
+  if (!data.values || data.values.length === 0) return 'orders: none';
+
+  var ss = SpreadsheetApp.getActive();
+  var sheet = ss.getSheetByName(STRIPE_ORDERS_TAB);
+  if (!sheet) {
+    sheet = ss.insertSheet(STRIPE_ORDERS_TAB);
+    sheet.getRange(1, 1, 1, STRIPE_ORDERS_HEADER.length).setValues([STRIPE_ORDERS_HEADER]);
+    sheet.setFrozenRows(1);
+    sheet.getRange(1, 1, 1, STRIPE_ORDERS_HEADER.length)
+      .setFontWeight('bold').setBackground('#124a33').setFontColor('#ffffff');
+  }
+
+  sheet.getRange(sheet.getLastRow() + 1, 1, data.values.length, data.values[0].length)
+    .setValues(data.values);
+  SpreadsheetApp.flush();
+
+  var confirm = UrlFetchApp.fetch(STRIPE_ORDERS_ENDPOINT, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + secret },
+    payload: JSON.stringify({ ids: data.ids }),
+    muteHttpExceptions: true,
+  });
+
+  if (confirm.getResponseCode() !== 200) {
+    // The rows are on the tab but unmarked, so the next run would append them
+    // again. Say so loudly rather than leaving a silent duplicate.
+    console.error('stripe orders appended but NOT confirmed — check for duplicates');
+    return 'orders: ' + data.values.length + ' appended, CONFIRM FAILED';
+  }
+
+  return 'orders: ' + data.values.length + ' appended';
+}
+
+/**
+ * The first row above `floorRow` with nobody's name on it — the row a person
+ * would type into next. `floorRow` itself when the sheet is full.
+ *
+ * Name is the test rather than "row is empty" because the free rows are not
+ * empty: they carry dragged-down checkboxes and formatting. A row with no
+ * purchaser on it holds no purchase, whatever else is sitting in it.
+ */
+function findFirstFreeRow(sheet, floorRow) {
+  if (floorRow <= 2) return 2;
+  var names = sheet.getRange(2, 2, floorRow - 2, 1).getDisplayValues();
+  for (var i = 0; i < names.length; i++) {
+    if (!String(names[i][0]).trim()) return i + 2; // getRange is 1-based
+  }
+  return floorRow;
+}
+
+/**
+ * How many free rows run consecutively from `startRow`.
+ *
+ * Consecutive on purpose: a single blank row left in the middle of the ledger
+ * gets filled, but the batch stops there rather than writing straight over the
+ * names underneath it.
+ */
+function countFreeRowsFrom(sheet, startRow, floorRow) {
+  if (startRow >= floorRow) return 0;
+  var names = sheet.getRange(startRow, 2, floorRow - startRow, 1).getDisplayValues();
+  var n = 0;
+  while (n < names.length && !String(names[n][0]).trim()) n++;
+  return n;
 }
 
 /** The sheet ends with a `Total` row; returns its index, or 0 if absent. */

@@ -11,7 +11,7 @@ export type PaymentStatus =
   | 'comped'
   | 'needs_review'
 
-export type PaymentMethod = 'square' | 'zelle' | 'cash' | 'complimentary' | 'other'
+export type PaymentMethod = 'square' | 'stripe' | 'zelle' | 'cash' | 'complimentary' | 'other'
 
 export type Household = {
   id: string

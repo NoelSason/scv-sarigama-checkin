@@ -29,7 +29,7 @@ function authorized(req: Request): boolean {
 }
 
 export const ANALYTICS_HEADERS = [
-  'When (UTC)',
+  'When (PT)',
   'Category',
   'Event',
   'Who',
@@ -63,6 +63,25 @@ type Row = {
   user_agent: string | null
   household: string | null
   detail: string | null
+}
+
+/**
+ * Timestamps are stored in UTC and read in California, so the sheet shows local
+ * time. Sortable order is kept — "YYYY-MM-DD HH:mm:ss", same shape as before.
+ */
+const PACIFIC = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: 'America/Los_Angeles',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+})
+
+function pacific(iso: string): string {
+  return PACIFIC.format(new Date(iso))
 }
 
 /** Long UA strings make the sheet unreadable; keep the part that identifies it. */
@@ -105,7 +124,7 @@ export async function GET(req: Request) {
   )
 
   const values = rows.map((r) => [
-    new Date(r.occurred_at).toISOString().replace('T', ' ').slice(0, 19),
+    pacific(r.occurred_at),
     r.category,
     r.action,
     r.actor ?? '',

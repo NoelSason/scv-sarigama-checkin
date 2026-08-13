@@ -26,6 +26,44 @@ const MAX_PER_RUN = 10
 /** Under Resend's 2/second. */
 const GAP_MS = 400
 
+/**
+ * Who is owed a pass right now.
+ *
+ * Two conditions, and the second is the one that makes repeat purchases work.
+ *
+ *   never sent   — no delivery has reached this guest's address
+ *   now stale    — the last one was sent when they had a different number of
+ *                  admissions, so it understates what they now hold
+ *
+ * Without the second, somebody who buys again keeps an email claiming 2 while
+ * the ledger says 5, and nothing ever corrects it because a pass was, in the
+ * narrowest sense, sent.
+ *
+ * Shared by the sender and by the "is anybody stuck?" check, so the warning can
+ * never disagree with what would actually go out.
+ */
+const AWAITING_PASS = `
+  from households h
+ where not h.is_test
+   and h.merged_into_id is null
+   and h.pass_enabled
+   and h.payment_status in ('paid', 'comped')
+   and coalesce(trim(h.email), '') <> ''
+   and coalesce(
+         (select d.tickets_at_send
+            from email_deliveries d
+           where d.household_id = h.id
+             and d.kind = 'pass'
+             and d.status = 'sent'
+             -- Must have reached THIS guest. A delivery recorded against a
+             -- different address (a redirect, or an address later corrected) is
+             -- not evidence that they hold a pass.
+             and lower(d.to_email) = lower(trim(h.email))
+           order by d.sent_at desc nulls last
+           limit 1),
+         -1
+       ) <> h.tickets_purchased`
+
 export type DispatchResult = {
   sent: number
   failed: number
@@ -42,6 +80,49 @@ export type DispatchResult = {
  */
 function autoSendEnabled(): boolean {
   return (process.env.AUTO_SEND_PASSES ?? '').trim().toLowerCase() !== 'off'
+}
+
+/**
+ * Say so, in the place a human looks, when automatic sending is switched off.
+ *
+ * Both switches are meant to be temporary, and both fail silent: the webhook
+ * still answers 200, the payment is still recorded, the console warning scrolls
+ * away in a log nobody is reading, and the guest simply never gets a ticket.
+ * That is exactly how a safety valve left open over lunch turns into people
+ * arriving at the door with nothing on their phone.
+ *
+ * So: whenever a switch stops a send that would otherwise have happened, raise
+ * it in the review queue. Quiet when nobody is actually waiting — a redirect set
+ * on a calm afternoon is a normal state and should not nag.
+ *
+ * The partial unique index on (kind, source, source_record_id) keeps this to one
+ * open item however many webhooks arrive, and `clearSuppressionNotice` closes it
+ * the moment passes start flowing again.
+ */
+async function noteSuppressed(cause: string, reason: string): Promise<void> {
+  const [{ count }] = await query<{ count: string }>(`select count(*)::text as count ${AWAITING_PASS}`)
+  if (Number(count) === 0) return
+
+  await query(
+    `insert into review_items (kind, source, source_record_id, summary, payload)
+     values ('passes_not_sending', 'dispatch', 'auto-send', $1, $2::jsonb)
+     on conflict do nothing`,
+    [
+      `Passes are not being emailed automatically: ${cause}. Guests who have paid are ` +
+        `waiting and will keep waiting until it is cleared. Nothing is lost — everyone ` +
+        `still owed a pass is sent one as soon as sending resumes.`,
+      JSON.stringify({ cause, triggered_by: reason, awaiting: Number(count) }),
+    ],
+  )
+}
+
+/** Sending works again, so the standing warning is no longer true. */
+async function clearSuppressionNotice(): Promise<void> {
+  await query(
+    `update review_items
+        set status = 'resolved', resolved_at = now()
+      where kind = 'passes_not_sending' and status = 'open'`,
+  )
 }
 
 /**
@@ -128,6 +209,7 @@ export async function dispatchPendingPasses(
   limit = MAX_PER_RUN,
 ): Promise<DispatchResult> {
   if (!autoSendEnabled()) {
+    await noteSuppressed('AUTO_SEND_PASSES is set to off', reason)
     return { sent: 0, failed: 0, skipped: 'disabled', recipients: [] }
   }
 
@@ -150,6 +232,7 @@ export async function dispatchPendingPasses(
         'Automatic sending stays off until it is cleared, so nobody is marked ' +
         'as having received a pass that only reached the test inbox.',
     )
+    await noteSuppressed(`EMAIL_TEST_REDIRECT is set to ${redirect}`, reason)
     return { sent: 0, failed: 0, skipped: 'test-redirect', recipients: [] }
   }
 
@@ -159,41 +242,8 @@ export async function dispatchPendingPasses(
   const merged = await autoMergeConfidentDuplicates()
   if (merged > 0) console.log(`[dispatch] auto-merged ${merged} repeat buyer(s) before sending`)
 
-  /**
-   * Two conditions, and the second is the one that makes repeat purchases work.
-   *
-   *   never sent   — no delivery has reached this guest's address
-   *   now stale    — the last one was sent when they had a different number of
-   *                  admissions, so it understates what they now hold
-   *
-   * Without the second, somebody who buys again keeps an email claiming 2 while
-   * the ledger says 5, and nothing ever corrects it because a pass was, in the
-   * narrowest sense, sent.
-   */
   const pending = await query<Household>(
-    `select h.*
-       from households h
-      where not h.is_test
-        and h.merged_into_id is null
-        and h.pass_enabled
-        and h.payment_status in ('paid', 'comped')
-        and coalesce(trim(h.email), '') <> ''
-        and coalesce(
-              (select d.tickets_at_send
-                 from email_deliveries d
-                where d.household_id = h.id
-                  and d.kind = 'pass'
-                  and d.status = 'sent'
-                  -- Must have reached THIS guest. A delivery recorded against a
-                  -- different address (a redirect, or an address later
-                  -- corrected) is not evidence that they hold a pass.
-                  and lower(d.to_email) = lower(trim(h.email))
-                order by d.sent_at desc nulls last
-                limit 1),
-              -1
-            ) <> h.tickets_purchased
-      order by h.created_at
-      limit $1`,
+    `select h.* ${AWAITING_PASS} order by h.created_at limit $1`,
     [limit],
   )
 
@@ -221,6 +271,8 @@ export async function dispatchPendingPasses(
     }
     if (i < pending.length - 1) await new Promise((r) => setTimeout(r, GAP_MS))
   }
+
+  if (sent > 0) await clearSuppressionNotice()
 
   if (sent > 0 || failed > 0) {
     await logAudit('passes_auto_sent', {

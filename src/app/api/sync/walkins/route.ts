@@ -40,26 +40,43 @@ type Row = {
   email: string | null
   phone: string | null
   created_at: string
+  perform_interested: boolean | null
+  perform_kind: string | null
 }
 
 export async function GET(req: Request) {
   if (!authorized(req)) return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 })
 
-  // Walk-ins AND new online Square sales. Both are money the sheet would
-  // otherwise never learn about: previously somebody typed each card purchase
-  // in by hand. Everything present at import time was backfilled as already
-  // exported, so the 51 Credit Card rows already in the sheet are not
-  // duplicated — only sales made from here on flow back.
+  // Walk-ins AND new online card sales (Square, and Stripe via
+  // pay.scvsarigama.com). All are money the sheet would otherwise never learn
+  // about: previously somebody typed each card purchase in by hand. Everything
+  // present at import time was backfilled as already exported, so the 51
+  // Credit Card rows already in the sheet are not duplicated — only sales made
+  // from here on flow back.
+  //
+  // The lateral join pulls the Onam program registration answered at Stripe
+  // checkout, so the sheet's performing? / Individual-or-Group columns carry
+  // real answers instead of a hardcoded No. Latest order wins when a household
+  // bought more than once; households without a pay_orders row join as null
+  // and keep the old behavior.
   const rows = await query<Row>(
-    `select id, display_name, amount_paid_cents, tickets_purchased, children_under_6,
-            payment_method::text as payment_method, payment_status::text as payment_status,
-            email, phone, created_at
-       from households
-      where source in ('walk_in', 'square')
-        and exported_to_sheet_at is null
-        and not is_test
-        and payment_status in ('paid', 'comped')
-      order by created_at
+    `select h.id, h.display_name, h.amount_paid_cents, h.tickets_purchased, h.children_under_6,
+            h.payment_method::text as payment_method, h.payment_status::text as payment_status,
+            h.email, h.phone, h.created_at,
+            p.perform_interested, p.perform_kind
+       from households h
+       left join lateral (
+            select perform_interested, perform_kind
+              from pay_orders
+             where pay_orders.household_id = h.id
+             order by pay_orders.created_at desc
+             limit 1
+       ) p on true
+      where h.source in ('walk_in', 'square', 'stripe')
+        and h.exported_to_sheet_at is null
+        and not h.is_test
+        and h.payment_status in ('paid', 'comped')
+      order by h.created_at
       limit 200`,
   )
 
@@ -70,12 +87,16 @@ export async function GET(req: Request) {
     const method =
       r.payment_status === 'comped'
         ? 'Comp'
-        : r.payment_method === 'square'
+        : r.payment_method === 'square' || r.payment_method === 'stripe'
           ? 'Credit Card'
           : titleCase(r.payment_method ?? 'other')
 
     const notes = [
-      r.payment_method === 'square' ? 'Bought online' : 'Added at the door via check-in app',
+      r.payment_method === 'square'
+        ? 'Bought online'
+        : r.payment_method === 'stripe'
+          ? 'Bought online (pay.scvsarigama.com)'
+          : 'Added at the door via check-in app',
       r.children_under_6 > 0 ? `${r.children_under_6} under 6 (free)` : null,
       r.email,
       r.phone,
@@ -92,8 +113,10 @@ export async function GET(req: Request) {
       `${method} ${CHECKIN_APP_MARKER}`,
       'TRUE',
       'FALSE',
-      'No',
-      '',
+      // Only an explicit yes at checkout counts; null (no registration, or a
+      // non-Stripe row) reads as No, same as before the join existed.
+      r.perform_interested === true ? 'Yes' : 'No',
+      r.perform_kind ? titleCase(r.perform_kind) : '',
       notes,
     ]
   })
