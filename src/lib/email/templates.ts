@@ -270,7 +270,9 @@ export function renderPassEmail(
     '',
     ...(notice ? [notice, ''] : []),
     isReminder
-      ? 'Onam is nearly here. Final details are below, and your pass is attached again.'
+      // Not "again": this mailing now also goes to people buying in the last
+      // days, for whom it is the first pass they have ever received.
+      ? 'Onam is nearly here. Final details are below, and your pass is attached.'
       : 'Your Onam payment has been received, and your Sadhya pass is ready.',
     ...(isReminder && detailLines.length ? ['', '--- FINAL DETAILS ---', ...detailLines] : []),
     '',
@@ -340,7 +342,7 @@ export function renderPassEmail(
             }
             <p style="margin:0;">${
               isReminder
-                ? 'Onam is nearly here. Final details are below, and your pass is included again.'
+                ? 'Onam is nearly here. Final details are below, and your pass is included.'
                 : 'Your Onam payment has been received, and your Sadhya pass is ready.'
             }</p>
           </td>

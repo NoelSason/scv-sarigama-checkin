@@ -23,6 +23,20 @@ import { sendPassEmail } from './index'
 /** Kept small: this runs inside a webhook and a sync that both have deadlines. */
 const MAX_PER_RUN = 10
 
+/**
+ * Which mailing a new buyer receives.
+ *
+ * `pass` up to the week of the event; `reminder` from here on, because it is the
+ * only one carrying the date, the serving window, the venue, the parking, and
+ * the 1:30 cutoff. Somebody buying the night before needs those far more than
+ * everyone who bought in June did — and sending them the bare pass would mean
+ * they are the only guests who never see where to park.
+ *
+ * Both variants carry the same ticket and the same QR, so this changes what the
+ * guest is told, never what they hold.
+ */
+const AUTO_VARIANT = 'reminder' as const
+
 /** Under Resend's 2/second. */
 const GAP_MS = 400
 
@@ -41,8 +55,14 @@ const GAP_MS = 400
  *
  * Shared by the sender and by the "is anybody stuck?" check, so the warning can
  * never disagree with what would actually go out.
+ *
+ * Either mailing counts as holding a pass. The reminder contains the same ticket
+ * and the same QR, so a guest sent one is not waiting for anything — and once
+ * AUTO_VARIANT became 'reminder', asking only about 'pass' deliveries would have
+ * meant every new buyer stayed permanently owed a pass and was mailed another on
+ * every webhook that arrived.
  */
-const AWAITING_PASS = `
+export const AWAITING_PASS = `
   from households h
  where not h.is_test
    and h.merged_into_id is null
@@ -53,7 +73,7 @@ const AWAITING_PASS = `
          (select d.tickets_at_send
             from email_deliveries d
            where d.household_id = h.id
-             and d.kind = 'pass'
+             and d.kind in ('pass', 'reminder')
              and d.status = 'sent'
              -- Must have reached THIS guest. A delivery recorded against a
              -- different address (a redirect, or an address later corrected) is
@@ -256,7 +276,7 @@ export async function dispatchPendingPasses(
 
   for (const [i, household] of pending.entries()) {
     try {
-      const result = await sendPassEmail(household, 'pass', { auto: true })
+      const result = await sendPassEmail(household, AUTO_VARIANT, { auto: true })
       if (result.ok) {
         sent++
         recipients.push(household.email ?? '')

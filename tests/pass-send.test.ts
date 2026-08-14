@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { query, queryOne } from '@/lib/db'
 import { sendPassEmail } from '@/lib/email'
+import { AWAITING_PASS } from '@/lib/email/dispatch'
 import type { EmailMessage, EmailProvider, EmailResult } from '@/lib/email/provider'
 import type { Household } from '@/lib/households'
 import { makeHousehold, purgeTestData } from './helpers'
@@ -56,6 +57,24 @@ afterAll(async () => {
 async function household(opts: { email: string; purchased?: number }): Promise<Household> {
   const created = await makeHousehold({ purchased: opts.purchased ?? 2, email: opts.email })
   return (await queryOne<Household>('select * from households where id = $1', [created.id]))!
+}
+
+/**
+ * "Is this household still owed a pass?" — asked with the dispatcher's own SQL,
+ * so the answer here cannot drift from what would actually be mailed.
+ *
+ * `not h.is_test` is neutralised on purpose. The fixture has to stay flagged as
+ * a test row: an unflagged household carrying an email address is, for the
+ * length of a test run, indistinguishable from a real guest, and the live
+ * dispatcher would cheerfully mail it. The clause under test is the delivery
+ * lookup, not that one.
+ */
+async function awaiting(householdId: string): Promise<boolean> {
+  const rows = await query<{ id: string }>(
+    `select h.id ${AWAITING_PASS.replace('not h.is_test', 'true')} and h.id = $1`,
+    [householdId],
+  )
+  return rows.length > 0
 }
 
 async function deliveries(householdId: string) {
@@ -139,6 +158,23 @@ describe('the sends that must still get through', () => {
 
     expect(reminder.ok).toBe(true)
     expect(sends).toHaveLength(2)
+  })
+
+  it('TEST: a reminder settles the debt, so the dispatcher stops asking', async () => {
+    // New buyers are now sent the reminder rather than the bare pass, because it
+    // is the only variant carrying the venue, parking and the 1:30 cutoff. If
+    // "who is owed a pass?" still counted only 'pass' deliveries, every one of
+    // them would stay owed forever and be mailed again on every webhook.
+    const h = await household({ email: 'lateBuyer@example.test', purchased: 3 })
+
+    expect(await awaiting(h.id)).toBe(true)
+
+    await sendPassEmail(h, 'reminder', { auto: true })
+    expect(await awaiting(h.id)).toBe(false)
+
+    // Buying again must still reopen it — the reminder they hold says 3.
+    await query('update households set tickets_purchased = 5 where id = $1', [h.id])
+    expect(await awaiting(h.id)).toBe(true)
   })
 
   it('TEST: a send that failed is retried rather than counted as delivered', async () => {
