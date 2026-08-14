@@ -251,14 +251,19 @@ export async function dispatchPendingPasses(
 
   let sent = 0
   let failed = 0
+  let claimed = 0
   const recipients: string[] = []
 
   for (const [i, household] of pending.entries()) {
     try {
-      const result = await sendPassEmail(household, 'pass')
+      const result = await sendPassEmail(household, 'pass', { auto: true })
       if (result.ok) {
         sent++
         recipients.push(household.email ?? '')
+      } else if (result.reason === 'ALREADY_CLAIMED') {
+        // Another instance is mid-send for this exact pass. Not a failure and
+        // not something to retry: it is the duplicate being prevented.
+        claimed++
       } else {
         failed++
       }
@@ -277,7 +282,9 @@ export async function dispatchPendingPasses(
   if (sent > 0 || failed > 0) {
     await logAudit('passes_auto_sent', {
       actorType: 'system',
-      metadata: { reason, sent, failed, recipients },
+      // deduped is worth recording: it is the only visible trace that two
+      // instances raced and the second one stood down.
+      metadata: { reason, sent, failed, deduped: claimed, recipients },
     })
   }
 

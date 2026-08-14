@@ -24,7 +24,11 @@ export function getEmailProvider(): EmailProvider {
 
 export type SendPassResult =
   | { ok: true; deliveryId: string; providerMessageId: string | null }
-  | { ok: false; reason: 'NO_EMAIL' | 'PASS_NOT_ACTIVE' | 'SEND_FAILED'; error: string }
+  | {
+      ok: false
+      reason: 'NO_EMAIL' | 'PASS_NOT_ACTIVE' | 'SEND_FAILED' | 'ALREADY_CLAIMED'
+      error: string
+    }
 
 function passIsSendable(household: Household): boolean {
   return (
@@ -42,6 +46,13 @@ function passIsSendable(household: Household): boolean {
  * set, is the test inbox and not the guest. That distinction matters: a row
  * marked sent to the guest's address would later be read as "they already have
  * it" and the real send would skip them.
+ *
+ * For automatic sends that row is also the claim on the right to send at all.
+ * Two webhook deliveries for one payment land on two instances at the same
+ * instant, so "has this already been sent?" cannot be answered by reading —
+ * both read the same nothing and both send. The insert decides it instead:
+ * whoever gets the row sends, and the other is told ALREADY_CLAIMED and stops.
+ * See 0014_one_automatic_send.sql for what counts as the same send.
  */
 export async function sendPassEmail(
   household: Household,
@@ -52,7 +63,16 @@ export async function sendPassEmail(
    */
   variant: PassEmailVariant = 'pass',
   /** One-off extras. Empty for every ordinary send. */
-  extra: { notice?: string | null; cc?: string[] } = {},
+  extra: {
+    notice?: string | null
+    cc?: string[]
+    /**
+     * Nobody asked for this one — the dispatcher decided it was owed. Only
+     * these compete with each other, so a human pressing "resend" at the desk
+     * is never blocked by what an automatic run did a moment earlier.
+     */
+    auto?: boolean
+  } = {},
 ): Promise<SendPassResult> {
   const to = household.email?.trim()
   if (!to) {
@@ -82,14 +102,26 @@ export async function sendPassEmail(
     attachments: qr ? [qr] : undefined,
   }
 
+  const auto = extra.auto === true
   const row = await queryOne<{ id: string }>(
     `insert into email_deliveries
-       (household_id, to_email, subject, status, provider, kind, tickets_at_send)
-     values ($1, $2, $3, 'pending', $4, $5, $6)
+       (household_id, to_email, subject, status, provider, kind, tickets_at_send, auto)
+     values ($1, $2, $3, 'pending', $4, $5, $6, $7)
+     on conflict do nothing
      returning id`,
-    [household.id, to, message.subject, provider.name, variant, household.tickets_purchased],
+    [household.id, to, message.subject, provider.name, variant, household.tickets_purchased, auto],
   )
-  const deliveryId = row!.id
+  if (!row) {
+    // Only reachable on an automatic send: another instance is already sending
+    // this exact pass, or has. Not a failure — the guest gets their email, just
+    // not from this request.
+    return {
+      ok: false,
+      reason: 'ALREADY_CLAIMED',
+      error: 'Another run is already sending this pass',
+    }
+  }
+  const deliveryId = row.id
 
   const result = await provider.send(message)
 

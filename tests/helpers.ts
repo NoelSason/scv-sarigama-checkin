@@ -4,6 +4,7 @@ import { generatePassToken } from '@/lib/tokens'
 export type Household = {
   id: string
   display_name: string
+  email: string | null
   tickets_purchased: number
   tickets_redeemed: number
   tickets_remaining: number
@@ -39,13 +40,16 @@ export async function makeHousehold(opts: {
   under6?: number
   name?: string
   isTest?: boolean
+  /** Only the send tests need one, and they never reach a real provider. */
+  email?: string
 }): Promise<Household> {
   const name = opts.name ?? `TEST Household ${Date.now()}-${seq++}`
   const row = await queryOne<Household>(
     `insert into households
        (display_name, tickets_purchased, tickets_redeemed, children_under_6,
-        payment_status, pass_enabled, pass_token, is_test, source)
-     values ($1, $2, $3, $4, $5::payment_status, $6, $7, $9, $8)
+        payment_status, pass_enabled, pass_token, is_test, source,
+        email, normalized_email)
+     values ($1, $2, $3, $4, $5::payment_status, $6, $7, $9, $8, $10, lower(trim($10)))
      returning *`,
     [
       name,
@@ -57,6 +61,7 @@ export async function makeHousehold(opts: {
       generatePassToken(),
       TEST_SOURCE,
       opts.isTest ?? true,
+      opts.email ?? null,
     ],
   )
   if (!row) throw new Error('failed to create test household')
