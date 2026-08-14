@@ -419,6 +419,9 @@ function RedeemPanel({
   onCancel: () => void
 }) {
   const [custom, setCustom] = useState('')
+  // Nothing is redeemed straight off a number tap: the count has to survive one
+  // more screen that spells out the age rule. See ConfirmCount below.
+  const [pending, setPending] = useState<number | null>(null)
   const remaining = household.tickets_remaining
   const used = household.tickets_redeemed
   const usable =
@@ -460,6 +463,17 @@ function RedeemPanel({
     )
   }
 
+  if (pending !== null) {
+    return (
+      <ConfirmCount
+        household={household}
+        quantity={pending}
+        onConfirm={() => onChoose(pending)}
+        onBack={() => setPending(null)}
+      />
+    )
+  }
+
   // Never offer a button that would fail. Buttons are capped at remaining.
   const quickMax = Math.min(remaining, 6)
   const quick = Array.from({ length: quickMax }, (_, i) => i + 1)
@@ -480,13 +494,16 @@ function RedeemPanel({
       <p className="text-center font-extrabold tracking-[0.08em]">REMAINING</p>
 
       <p className="mt-6 text-center text-lg font-black">HOW MANY ARE ENTERING?</p>
+      <p className="mt-1 text-center text-sm font-bold text-[var(--green-deep)]">
+        Count every child 6 and older. Under 6 eat free.
+      </p>
 
       <div className="mt-3 grid grid-cols-3 gap-3">
         {quick.map((n) => (
           <button
             key={n}
             type="button"
-            onClick={() => onChoose(n)}
+            onClick={() => setPending(n)}
             className="btn-primary py-7 text-3xl"
           >
             {n}
@@ -507,7 +524,7 @@ function RedeemPanel({
           <button
             type="button"
             disabled={!custom || Number(custom) < 1 || Number(custom) > remaining}
-            onClick={() => onChoose(Number(custom))}
+            onClick={() => setPending(Number(custom))}
             className="btn-primary px-6"
           >
             Go
@@ -528,6 +545,69 @@ function RedeemPanel({
 
       <button type="button" onClick={onCancel} className="btn-neutral mt-4 w-full">
         Cancel
+      </button>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+
+/**
+ * The age check, and the last stop before admissions are consumed.
+ *
+ * The free-under-6 rule is the one thing a family can get wrong in good faith:
+ * "the kids are free" is true right up until a child turns six, and the number
+ * a parent says at the door reflects what they believe, not what they were
+ * charged for. A line of small print above the keypad gets read once on the
+ * first family of the day and never again, so the rule gets its own screen with
+ * the count already on it — the volunteer cannot reach the green screen without
+ * looking at the number and the rule together.
+ *
+ * It doubles as the mis-tap catch. Before this, a fat-thumbed 6 went straight
+ * through and had to be walked back through Give back.
+ */
+function ConfirmCount({
+  household,
+  quantity,
+  onConfirm,
+  onBack,
+}: {
+  household: Household
+  quantity: number
+  onConfirm: () => void
+  onBack: () => void
+}) {
+  const under6 = household.children_under_6
+
+  return (
+    <div className="card border-2 border-[var(--gold)]">
+      <p className="text-center text-sm font-extrabold tracking-[0.08em] text-black/55">
+        ADMITTING
+      </p>
+      <p className="display text-center text-[64px] leading-none tabular-nums text-[var(--green-deep)]">
+        {quantity}
+      </p>
+      <p className="mt-1 text-center text-lg font-bold break-words">{household.display_name}</p>
+
+      <div className="mt-5 rounded-xl border-2 border-[var(--gold)] bg-[var(--cream)] p-4 text-center">
+        <p className="text-lg font-black">Any children with them?</p>
+        <p className="mt-2 font-semibold">
+          Every child <span className="text-[var(--danger)]">6 and older</span> needs an admission.
+          Only under 6 eat free.
+        </p>
+        {under6 > 0 && (
+          <p className="mt-3 text-sm font-bold text-black/70">
+            This family registered {under6} child{under6 === 1 ? '' : 'ren'} under 6. Check they are
+            still under 6.
+          </p>
+        )}
+      </div>
+
+      <button type="button" onClick={onConfirm} className="btn-primary mt-5 w-full py-6 text-2xl">
+        Yes — admit {quantity}
+      </button>
+      <button type="button" onClick={onBack} className="btn-neutral mt-3 w-full">
+        Change the number
       </button>
     </div>
   )
