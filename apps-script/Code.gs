@@ -159,6 +159,7 @@ function onOpen() {
     .addItem('Send filled-in emails to app', 'pushContacts')
     .addSeparator()
     .addItem('Update event analytics', 'refreshAnalytics')
+    .addItem('Tidy analytics tab', 'tidyAnalytics')
     .addSeparator()
     .addItem('Show installed triggers', 'listTriggers')
     .addToUi();
@@ -364,9 +365,29 @@ function describeFailure(res) {
 // ---------------------------------------------------------------------------
 // Event Analytics
 //
-// Every recorded action in the app: payments, logins (with address and rough
-// location), scans, desk lookups, admin changes, raffle draws, syncs, emails.
+// What happened at the event: payments, passes emailed, guests opening their
+// pass, logins (with address and rough location), scans, desk lookups, admin
+// changes, raffle draws.
+//
+// The app decides what belongs here; the sheet-sync machinery talking to itself
+// does not, and a sale that Square delivered five times is one sale.
 // ---------------------------------------------------------------------------
+
+/**
+ * Rows the app no longer sends. Only used by "Tidy analytics tab", to clear out
+ * what was written before it stopped sending them — keep in step with
+ * HIDDEN_ACTIONS in src/app/api/sync/analytics/route.ts.
+ */
+var ANALYTICS_HIDDEN_ACTIONS = [
+  'sheet_pushed',
+  'sheet_sync_committed',
+  'sheet_household_imported',
+  'sheet_household_updated',
+  'walkins_written_to_sheet',
+  'stripe_orders_written_to_sheet',
+  'square.webhook.household_updated',
+  'staff_signed_in',
+];
 
 /** Menu version: reports what it did. */
 function refreshAnalytics() {
@@ -453,6 +474,109 @@ function pullAnalytics() {
     console.log('analytics: ' + total + ' new event(s)');
   }
   return total;
+}
+
+/**
+ * Clear out what the tab was sent before the app stopped sending it.
+ *
+ * The feed only curates what it sends next; rows already written stay written,
+ * so a tab that has been running all morning still holds every sheet-push
+ * heartbeat and every repeat delivery of the same sale. This removes those, and
+ * nothing else.
+ *
+ * The one place this tab is rewritten rather than appended to — hence the menu
+ * item and the confirmation, so it is always a person's decision, never a
+ * timer's. Nothing is lost: the app keeps the full record and could re-send it.
+ *
+ * Where a repeated sale is dropped, its guest name is carried onto the row that
+ * stays. Square's first webhook for a payment arrives before the app has worked
+ * out whose it is, so the row that survives is often the one with a blank name.
+ */
+function tidyAnalytics() {
+  var sheet = SpreadsheetApp.getActive().getSheetByName(ANALYTICS_TAB);
+  if (!sheet || sheet.getLastRow() < 2) {
+    Browser.msgBox('Nothing in "' + ANALYTICS_TAB + '" to tidy yet.');
+    return;
+  }
+
+  var width = sheet.getLastColumn();
+  var header = sheet.getRange(1, 1, 1, width).getDisplayValues()[0];
+  var catCol = indexOfHeader(header, 'Category');
+  var actCol = indexOfHeader(header, 'Event');
+  var guestCol = indexOfHeader(header, 'Guest');
+  var detailCol = indexOfHeader(header, 'Details');
+  if (catCol < 0 || actCol < 0 || detailCol < 0) {
+    Browser.msgBox('That tab does not have the columns this expects — leaving it alone.');
+    return;
+  }
+
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, width).getValues();
+  var keep = [];
+  var saleRow = {};   // sale key -> index in keep of the row already listing it
+  var removed = 0;
+
+  for (var i = 0; i < rows.length; i++) {
+    var category = String(rows[i][catCol]).trim();
+    var action = String(rows[i][actCol]).trim();
+
+    if (category === 'sync' || (category === 'action' && ANALYTICS_HIDDEN_ACTIONS.indexOf(action) !== -1)) {
+      removed++;
+      continue;
+    }
+
+    if (category === 'payment') {
+      var sale = saleKey_(String(rows[i][detailCol]), action);
+      if (sale && saleRow[sale] !== undefined) {
+        var listed = keep[saleRow[sale]];
+        if (guestCol >= 0 && !listed[guestCol] && rows[i][guestCol]) listed[guestCol] = rows[i][guestCol];
+        removed++;
+        continue;
+      }
+      if (sale) saleRow[sale] = keep.length;
+    }
+
+    keep.push(rows[i]);
+  }
+
+  if (!removed) {
+    Browser.msgBox('Already tidy — nothing to remove.');
+    return;
+  }
+
+  var ui = SpreadsheetApp.getUi();
+  var answer = ui.alert(
+    'Tidy "' + ANALYTICS_TAB + '"',
+    'Remove ' + removed + ' sync and repeat-delivery row(s)? ' +
+      keep.length + ' event row(s) would stay.',
+    ui.ButtonSet.YES_NO
+  );
+  if (answer !== ui.Button.YES) return;
+
+  sheet.getRange(2, 1, rows.length, width).clearContent();
+  if (keep.length) sheet.getRange(2, 1, keep.length, width).setValues(keep);
+  SpreadsheetApp.flush();
+
+  Browser.msgBox('Removed ' + removed + ' row(s). ' + keep.length + ' left.');
+}
+
+/**
+ * Which sale a payment row belongs to, or '' if it does not say.
+ *
+ * A refund quotes the payment it reverses, so it is keyed apart: money going
+ * back out is its own event, not a repeat of the sale.
+ */
+function saleKey_(detail, action) {
+  var id = '';
+  try {
+    id = String(JSON.parse(detail).payment_id || '');
+  } catch (err) {
+    // The feed truncates long details, so the JSON may not close. The id is
+    // near the front and quoted, which survives the cut.
+    var match = /"payment_id"\s*:\s*"([^"]+)"/.exec(detail);
+    id = match ? match[1] : '';
+  }
+  if (!id) return '';
+  return (action.indexOf('refund') === 0 ? 'refund:' : 'payment:') + id;
 }
 
 /**

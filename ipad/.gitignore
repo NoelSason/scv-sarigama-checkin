@@ -1,0 +1,8 @@
+# Xcode build output. Kept inside the project rather than /tmp so a stray
+# DerivedData tree is visible and deletable, not invisible "System Data".
+build/
+DerivedData/
+
+# Per-developer window state and breakpoints — noise in every diff.
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/

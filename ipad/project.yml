@@ -1,0 +1,54 @@
+name: SadhyaScanner
+
+options:
+  bundleIdPrefix: com.scvsarigama
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    SWIFT_STRICT_CONCURRENCY: minimal
+
+targets:
+  SadhyaScanner:
+    type: application
+    platform: iOS
+    sources:
+      - path: SadhyaScanner
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.scvsarigama.sadhyascanner
+        PRODUCT_NAME: Sadhya Scanner
+        # iPad only. Every layout in here assumes a slate held in two hands at a
+        # food line, not a phone in one.
+        TARGETED_DEVICE_FAMILY: "2"
+        INFOPLIST_KEY_UIUserInterfaceStyle: Dark
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+    info:
+      path: SadhyaScanner/Info.plist
+      properties:
+        CFBundleDisplayName: Sadhya
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UIRequiresFullScreen: true
+        UIStatusBarHidden: true
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # Only local, unqualified hostnames are exempted from HTTPS — enough to
+        # point the app at `localhost:3000` while testing, and nothing at all
+        # towards the real server, which must stay TLS-only.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        NSCameraUsageDescription: >-
+          The camera reads the QR code on a guest's Sadhya pass. Nothing is
+          photographed or stored.
+        ITSAppUsesNonExemptEncryption: false
