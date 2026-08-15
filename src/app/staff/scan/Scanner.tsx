@@ -638,7 +638,13 @@ function RedeemPanel({
   }
 
   // Never offer a button that would fail. Buttons are capped at remaining.
-  const quickMax = Math.min(remaining, 6)
+  //
+  // The cap used to be 6, which put every larger family behind the "Other" box:
+  // a household of 10 arrives together, the volunteer sees six buttons, and the
+  // way to admit all ten is to notice a text field, type, and press Go with a
+  // queue waiting. Twelve covers essentially every real household, and the
+  // typed fallback stays for the rare one above it.
+  const quickMax = Math.min(remaining, 12)
   const quick = Array.from({ length: quickMax }, (_, i) => i + 1)
 
   return (
@@ -837,7 +843,9 @@ function GiveBackSection({
     )
   }
 
-  const quick = Array.from({ length: Math.min(max, 6) }, (_, i) => i + 1)
+  // Same reach as the admit grid: a family of ten counted wrong has to be able
+  // to get all ten back without a text field.
+  const quick = Array.from({ length: Math.min(max, 12) }, (_, i) => i + 1)
 
   return (
     <div className="mt-4 rounded-xl border-2 border-[var(--gold)] bg-[var(--cream)] p-4">

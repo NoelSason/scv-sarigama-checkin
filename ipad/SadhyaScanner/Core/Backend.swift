@@ -5,6 +5,15 @@ enum BackendError: LocalizedError {
     case notConfigured
     case signedOut
     case passNotFound
+    /// The server answered, but has nothing at that path.
+    ///
+    /// Separate from `passNotFound` on purpose: both arrive as HTTP 404, and
+    /// they mean opposite things. On the pass lookup a 404 is a guest holding
+    /// the wrong QR code. Anywhere else it is the app asking for an endpoint
+    /// this deployment does not have — and telling a volunteer typing a
+    /// password that their code is not a Sadhya pass sends them hunting for a
+    /// problem that is not there.
+    case missing
     case offline
     case badResponse(String)
 
@@ -13,6 +22,7 @@ enum BackendError: LocalizedError {
         case .notConfigured: return "No server address set."
         case .signedOut: return "This iPad is signed out."
         case .passNotFound: return "That code is not a Sadhya pass."
+        case .missing: return "This server has no sign-in endpoint for the app yet. Check the address, or deploy the latest site."
         case .offline: return "Could not reach the server."
         case .badResponse(let detail): return detail
         }
@@ -118,9 +128,14 @@ final class Backend: ObservableObject {
     /// Resolve a scanned code. Never changes anything — the volunteer still has
     /// to read the name aloud and choose a count before a ticket moves.
     func lookup(token: String) async throws -> Household {
-        let response: LookupResponse = try await get("/api/staff/lookup", query: ["token": token])
-        guard let household = response.household else { throw BackendError.passNotFound }
-        return household
+        do {
+            let response: LookupResponse = try await get("/api/staff/lookup", query: ["token": token])
+            guard let household = response.household else { throw BackendError.passNotFound }
+            return household
+        } catch BackendError.missing {
+            // Here, and only here, a 404 means the code is not a pass.
+            throw BackendError.passNotFound
+        }
     }
 
     func search(_ term: String) async throws -> [Household] {
@@ -221,7 +236,7 @@ final class Backend: ObservableObject {
             }
             throw BackendError.signedOut
         }
-        if code == 404 { throw BackendError.passNotFound }
+        if code == 404 { throw BackendError.missing }
         guard (200..<300).contains(code) else {
             throw BackendError.badResponse("The server answered \(code).")
         }

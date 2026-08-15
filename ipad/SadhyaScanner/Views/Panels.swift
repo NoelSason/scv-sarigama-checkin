@@ -33,14 +33,21 @@ struct CountPanel: View {
     @State private var givingBack = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            if household.usable && household.ticketsRemaining > 0 {
-                usablePass
-            } else {
-                blockedPass
+        // Scrollable because the grid now grows to twelve tiles: on a shorter
+        // iPad in landscape that is taller than the panel, and a number a
+        // volunteer cannot reach is the bug this whole change is fixing.
+        // `.basedOnSize` keeps it feeling fixed whenever it does fit.
+        ScrollView {
+            VStack(spacing: 0) {
+                if household.usable && household.ticketsRemaining > 0 {
+                    usablePass
+                } else {
+                    blockedPass
+                }
             }
+            .padding(30)
         }
-        .padding(30)
+        .scrollBounceBehavior(.basedOnSize)
         .frame(maxWidth: .infinity)
         .glass()
         .overlay(
@@ -76,8 +83,16 @@ struct CountPanel: View {
                 .multilineTextAlignment(.center)
                 .padding(.top, 4)
 
-            NumberGrid(upTo: min(household.ticketsRemaining, 6), tint: Palette.green, action: onChoose)
+            // Twelve, not six. A household of ten arrives as ten people, and a
+            // grid that stops at six makes the common case the awkward one.
+            NumberGrid(upTo: min(household.ticketsRemaining, 12), tint: Palette.green, action: onChoose)
                 .padding(.top, 16)
+
+            // Above twelve is rare enough to type. It still has to be reachable.
+            if household.ticketsRemaining > 12 {
+                CustomCount(limit: household.ticketsRemaining, action: onChoose)
+                    .padding(.top, 12)
+            }
 
             if household.ticketsRedeemed > 0 {
                 giveBackControl(max: household.ticketsRedeemed)
@@ -148,7 +163,7 @@ struct CountPanel: View {
                 Text("\(max) used so far")
                     .font(.system(size: 14))
                     .foregroundStyle(.white.opacity(0.5))
-                NumberGrid(upTo: Swift.min(max, 6), tint: Palette.gold) { quantity in
+                NumberGrid(upTo: Swift.min(max, 12), tint: Palette.gold) { quantity in
                     givingBack = false
                     onGiveBack(quantity)
                 }
@@ -292,6 +307,60 @@ struct NumberGrid: View {
                 .buttonStyle(SurfaceButton(tint: tint))
                 .foregroundStyle(.white)
             }
+        }
+    }
+}
+
+/// Typed count, for the household too large for the grid.
+struct CustomCount: View {
+    let limit: Int
+    let action: (Int) -> Void
+
+    @State private var typed = ""
+
+    private var value: Int? {
+        guard let number = Int(typed), number >= 1, number <= limit else { return nil }
+        return number
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            TextField("Other (up to \(limit))", text: $typed)
+                .keyboardType(.numberPad)
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .monospacedDigit()
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.white.opacity(0.07)))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(Palette.green.opacity(0.5), lineWidth: 1.5)
+                )
+                // Digits only: the count goes straight into a redeem call, and
+                // anything the keypad lets through that is not a number would
+                // arrive at the server as a refusal a volunteer has to decode.
+                .onChange(of: typed) { _, new in
+                    let digits = new.filter(\.isNumber)
+                    if digits != new { typed = digits }
+                }
+
+            Button {
+                if let value {
+                    action(value)
+                    typed = ""
+                }
+            } label: {
+                Text("Go")
+                    .font(.system(size: 19, weight: .black, design: .rounded))
+                    .padding(.vertical, 16)
+                    .padding(.horizontal, 8)
+            }
+            .buttonStyle(SurfaceButton(tint: Palette.green))
+            .foregroundStyle(.white)
+            .frame(width: 96)
+            .disabled(value == nil)
+            .opacity(value == nil ? 0.4 : 1)
         }
     }
 }
