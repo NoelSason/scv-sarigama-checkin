@@ -24,10 +24,35 @@ type Phase =
 const SUCCESS_MS = 2600
 const FAILURE_MS = 5000
 
+/**
+ * Marks that this phone has already been shown the briefing.
+ *
+ * Per-device rather than per-session: a volunteer who steps away and comes back
+ * should land straight on the camera, not on a wall of text with a queue in
+ * front of them. Bump the suffix if the steps themselves ever change.
+ */
+const BRIEF_KEY = 'onam.scan.brief.v1'
+
 export function Scanner({ staffName }: { staffName: string }) {
   const [phase, setPhase] = useState<Phase>({ kind: 'scanning' })
   const [manualOpen, setManualOpen] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // null until localStorage has been read — rendering the briefing before then
+  // would flash it at every volunteer who has already dismissed it.
+  const [brief, setBrief] = useState<boolean | null>(null)
+
+  // Read after mount, not in the initialiser: the server has no localStorage,
+  // so deciding during render would hydrate a different tree than it sent.
+  useEffect(() => {
+    try {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setBrief(localStorage.getItem(BRIEF_KEY) !== 'seen')
+    } catch {
+      // Private mode, storage disabled — show it once and move on.
+      setBrief(true)
+    }
+  }, [])
 
   // The camera keeps running underneath, but reporting is suspended whenever a
   // panel is up — so a QR left in frame can't re-trigger anything.
@@ -63,6 +88,23 @@ export function Scanner({ staffName }: { staffName: string }) {
     onScan: lookup,
     paused,
   })
+
+  /**
+   * Close the briefing.
+   *
+   * `openCamera` is what makes it cost nothing: the camera needs a tap to start
+   * anyway, so the volunteer who reads the steps spends the same single tap as
+   * the one who skips them.
+   */
+  function dismissBrief(openCamera: boolean) {
+    try {
+      localStorage.setItem(BRIEF_KEY, 'seen')
+    } catch {
+      /* nothing to remember it with — the button still works */
+    }
+    setBrief(false)
+    if (openCamera) void start()
+  }
 
   // Auto-dismiss result screens back to scanning. The success screen waits
   // longer than it needs to read, because that pause is the only window the
@@ -158,6 +200,19 @@ export function Scanner({ staffName }: { staffName: string }) {
 
   return (
     <div className="space-y-4">
+      {/* ---------------- first-run briefing ----------------
+          Sits over the scanner rather than replacing it, so the <video> is
+          already mounted when "open camera" fires and start() has something to
+          attach the stream to. */}
+      {brief === true && (
+        <ScannerBrief
+          // Reopened from the footer while the camera is already live: closing
+          // must not restart the stream underneath it.
+          onStart={() => dismissBrief(state !== 'running')}
+          onSkip={() => dismissBrief(false)}
+        />
+      )}
+
       {/* ---------------- camera ----------------
           Exactly one preview is mounted at a time. html5-qrcode injects its own
           <video> and scan-region graphic, so leaving ours mounted alongside it
@@ -344,7 +399,14 @@ export function Scanner({ staffName }: { staffName: string }) {
               Turn camera off
             </button>
           )}
-          <p className="mt-4 text-center text-xs text-black/45">
+          <button
+            type="button"
+            onClick={() => setBrief(true)}
+            className="mt-3 w-full py-2 text-sm font-semibold text-black/55 underline"
+          >
+            Show me the steps again
+          </button>
+          <p className="mt-3 text-center text-xs text-black/45">
             <Link href="/staff" className="underline">
               Back to menu
             </Link>
@@ -352,6 +414,107 @@ export function Scanner({ staffName }: { staffName: string }) {
         </div>
       )}
     </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+
+/**
+ * The thirty seconds of training a scanner volunteer actually gets.
+ *
+ * Most of them are handed a phone at the door by someone who is already busy,
+ * and /staff/help only helps the volunteer who thinks to go and read it. This
+ * catches the one moment they are guaranteed to pass through.
+ *
+ * One screen, not a carousel: with a queue forming, anything with a "next"
+ * button gets tapped through without reading. Everything here is either a step
+ * they perform or a mistake that costs the event free meals — the reasoning
+ * lives in /staff/help, linked at the bottom.
+ *
+ * Skip is deliberately as easy as continue. A volunteer who has done this
+ * before and gets held hostage by a tutorial is worse off than one who never
+ * saw it, and the footer link brings it back any time.
+ */
+function ScannerBrief({ onStart, onSkip }: { onStart: () => void; onSkip: () => void }) {
+  return (
+    // Column layout with the buttons pinned: on a phone the steps run past the
+    // fold, and a volunteer who has to scroll to find "start" is a volunteer
+    // standing at a food line wondering whether the app is broken.
+    <div className="fixed inset-0 z-50 flex flex-col bg-[var(--background)]">
+      <div className="mx-auto w-full max-w-lg flex-1 space-y-4 overflow-y-auto overscroll-contain p-4">
+        <div>
+          <p className="text-sm font-extrabold tracking-[0.08em] text-black/50">SADHYA SCANNER</p>
+          <h1 className="display text-[28px] leading-[36px]">Five steps, every time</h1>
+        </div>
+
+        <ol className="card space-y-3 text-[15px] leading-relaxed">
+          <BriefStep n={1}>Point the camera at their QR code.</BriefStep>
+          <BriefStep n={2}>
+            <strong>Read the family name out loud.</strong> That confirms you scanned the right
+            code.
+          </BriefStep>
+          <BriefStep n={3}>
+            Ask <strong>&ldquo;how many are eating right now?&rdquo;</strong> — not how many they
+            bought.
+          </BriefStep>
+          <BriefStep n={4}>Tap that number, then confirm it on the next screen.</BriefStep>
+          <BriefStep n={5}>
+            <strong>Wait for the green screen.</strong> Then let them through.
+          </BriefStep>
+        </ol>
+
+        <div className="rounded-xl border-2 border-[var(--gold)] bg-[var(--cream)] p-4">
+          <p className="font-black">Who needs an admission?</p>
+          <p className="mt-1 text-[15px] leading-relaxed">
+            Everyone <strong>6 and older</strong>. Children under 6 eat free — don&apos;t count
+            them.
+          </p>
+        </div>
+
+        <div className="rounded-xl border-2 border-[var(--danger)] bg-[var(--danger-bg)] p-4">
+          <p className="font-black text-[var(--danger)]">Never</p>
+          <ul className="mt-2 space-y-1 text-[15px] font-semibold leading-relaxed">
+            <li>• Never let anyone in on a screenshot alone. Only the green screen counts.</li>
+            <li>• Never scan while the red connection bar is showing.</li>
+            <li>• Never count people who aren&apos;t standing in front of you.</li>
+          </ul>
+        </div>
+
+        <p className="text-[15px] leading-relaxed text-black/70">
+          Tapped the wrong number? The green screen has{' '}
+          <strong>&ldquo;Wrong number? Give tickets back&rdquo;</strong>. Anything else looks
+          wrong — get the admin. Nothing here is permanent.
+        </p>
+
+        <p className="text-center text-sm">
+          <Link href="/staff/help" className="text-black/55 underline">
+            Full instructions
+          </Link>
+        </p>
+      </div>
+
+      <div className="border-t-2 border-[var(--line)] bg-[var(--card)] p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        <div className="mx-auto max-w-lg">
+          <button type="button" onClick={onStart} className="btn-primary w-full py-6 text-xl">
+            Got it — open the camera
+          </button>
+          <button type="button" onClick={onSkip} className="btn-neutral mt-3 w-full py-4">
+            Skip
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function BriefStep({ n, children }: { n: number; children: React.ReactNode }) {
+  return (
+    <li className="flex gap-3">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--green)] text-sm font-black text-white">
+        {n}
+      </span>
+      <span>{children}</span>
+    </li>
   )
 }
 
