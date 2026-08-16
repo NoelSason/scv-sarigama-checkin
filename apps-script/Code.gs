@@ -160,6 +160,8 @@ function onOpen() {
     .addSeparator()
     .addItem('Update event analytics', 'refreshAnalytics')
     .addItem('Tidy analytics tab', 'tidyAnalytics')
+    .addItem('Analytics every minute until 5pm', 'boostAnalytics')
+    .addItem('Analytics back to every 5 minutes', 'unboostAnalytics')
     .addSeparator()
     .addItem('Show installed triggers', 'listTriggers')
     .addToUi();
@@ -389,6 +391,61 @@ var ANALYTICS_HIDDEN_ACTIONS = [
   'staff_signed_in',
 ];
 
+/**
+ * Event-day boost: pull analytics every minute instead of every five.
+ *
+ * Apps Script only offers 1, 5, 10, 15 or 30 for a minute timer, so "more
+ * often" means one minute — there is nothing between.
+ *
+ * It expires on its own at 5pm. That is the whole point: a minute timer left
+ * running is roughly 1,400 executions a day against a script runtime quota of
+ * 90 minutes on a consumer account, and the person who turns it on at an event
+ * is the last person who will remember to turn it off. The expiry is enforced
+ * inside pullAnalytics rather than by a second timer, so there is nothing else
+ * that can fail to fire.
+ */
+var ANALYTICS_BOOST_PROP = 'ANALYTICS_BOOST_UNTIL';
+
+function boostAnalytics() {
+  var until = new Date();
+  until.setHours(17, 0, 0, 0);
+
+  if (until.getTime() <= Date.now()) {
+    Browser.msgBox('It is already past 5pm — leaving analytics on its normal 5-minute timer.');
+    return;
+  }
+
+  setAnalyticsInterval(1);
+  PropertiesService.getScriptProperties().setProperty(ANALYTICS_BOOST_PROP, String(until.getTime()));
+
+  Browser.msgBox(
+    'Event analytics now updates every minute.\n\n' +
+      'It goes back to every 5 minutes automatically at 5pm today. ' +
+      'To stop sooner, use "Analytics back to every 5 minutes".'
+  );
+}
+
+/** End the boost early. Safe to run whether or not one is active. */
+function unboostAnalytics() {
+  PropertiesService.getScriptProperties().deleteProperty(ANALYTICS_BOOST_PROP);
+  setAnalyticsInterval(5);
+  Browser.msgBox('Event analytics is back on its normal 5-minute timer.');
+}
+
+/**
+ * Replace the analytics timer with one at the given interval.
+ *
+ * Deletes before it creates: Apps Script will happily install a second timer for
+ * the same function, and two pullAnalytics runs racing on the same tab is how
+ * the sheet ends up with duplicate rows.
+ */
+function setAnalyticsInterval(minutes) {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'pullAnalytics') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('pullAnalytics').timeBased().everyMinutes(minutes).create();
+}
+
 /** Menu version: reports what it did. */
 function refreshAnalytics() {
   var added = pullAnalytics();
@@ -407,6 +464,18 @@ function refreshAnalytics() {
  */
 function pullAnalytics() {
   var props = PropertiesService.getScriptProperties();
+
+  // Retire the every-minute boost the first time we run past its deadline.
+  // Checked before anything else can return early — a boost that outlived its
+  // day because the secret was missing would burn quota all night.
+  var boostUntil = props.getProperty(ANALYTICS_BOOST_PROP);
+  if (boostUntil && Date.now() >= Number(boostUntil)) {
+    props.deleteProperty(ANALYTICS_BOOST_PROP);
+    // Deleting the trigger that is running this very execution is allowed; the
+    // current run finishes normally and no further minute-runs are scheduled.
+    setAnalyticsInterval(5);
+  }
+
   var secret = props.getProperty('CHECKIN_SECRET');
   if (!secret) return -1;
 

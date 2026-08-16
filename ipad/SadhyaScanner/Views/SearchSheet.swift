@@ -94,6 +94,11 @@ struct SearchSheet: View {
                         .foregroundStyle(.white.opacity(0.55))
                         .monospacedDigit()
                 }
+                if let last = household.lastScan {
+                    Text("Last scanned \(last.timeLabel)")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(Palette.gold)
+                }
             }
             Spacer()
             Image(systemName: "chevron.right")

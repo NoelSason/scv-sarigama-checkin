@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useQrScanner } from '@/hooks/useQrScanner'
-import type { Household } from '@/lib/households'
+import type { Household, ScanMark } from '@/lib/households'
+import { scanAgoLabel, scanTimeLabel } from '@/lib/scan'
 import { StatusPill } from '@/components/StatusPill'
 
 type Phase =
@@ -607,6 +608,8 @@ function RedeemPanel({
             : 'Send them to the registration desk.'}
         </p>
 
+        <PriorScans scans={household.recent_scans} />
+
         {/* A fully-used pass is exactly when an over-count shows up — someone
             arrives, finds nothing left, and says they only ate twice. Fixing it
             here beats sending them to find an admin. */}
@@ -656,6 +659,8 @@ function RedeemPanel({
           {household.tickets_purchased} bought · {household.tickets_redeemed} used
         </span>
       </div>
+
+      <PriorScans scans={household.recent_scans} />
 
       <p className="display mt-4 text-center text-[52px] leading-none tabular-nums text-[var(--green-deep)]">
         {remaining}
@@ -722,6 +727,50 @@ function RedeemPanel({
 /* ------------------------------------------------------------------ */
 
 /**
+ * When this pass was used before.
+ *
+ * "3 used" tells a volunteer a family has eaten; it does not tell them whether
+ * that was an hour ago at the other door or ninety seconds ago at this one —
+ * and the second is a phone being handed back down the queue. The time is the
+ * part that turns a number into a question worth asking, so it sits above the
+ * keypad rather than in a history screen nobody opens with a line waiting.
+ *
+ * Silent on a pass nobody has used: the ordinary scan stays a name and a row of
+ * numbers.
+ */
+function PriorScans({ scans }: { scans?: ScanMark[] }) {
+  if (!scans || scans.length === 0) return null
+
+  const [latest, ...earlier] = scans
+  const ago = scanAgoLabel(latest.at)
+
+  return (
+    <div className="mt-4 rounded-xl border-2 border-[var(--gold)] bg-[var(--cream)] p-3 text-left">
+      <p className="text-sm font-extrabold tracking-[0.08em] text-[var(--gold-deep)]">
+        ⏱ SCANNED BEFORE
+      </p>
+      <p className="mt-1 font-bold">
+        {latest.quantity} admitted at {scanTimeLabel(latest.at)}
+        {ago && <span className="font-semibold text-black/60"> · {ago}</span>}
+      </p>
+      {latest.device && <p className="text-sm text-black/55">at {latest.device}</p>}
+      {earlier.length > 0 && (
+        <ul className="mt-2 space-y-0.5 text-sm text-black/60">
+          {earlier.map((scan, i) => (
+            <li key={`${scan.at}-${i}`}>
+              {scan.quantity} at {scanTimeLabel(scan.at)}
+              {scan.device ? ` · ${scan.device}` : ''}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+
+/**
  * The age check, and the last stop before admissions are consumed.
  *
  * The free-under-6 rule is the one thing a family can get wrong in good faith:
@@ -747,6 +796,7 @@ function ConfirmCount({
   onBack: () => void
 }) {
   const under6 = household.children_under_6
+  const lastScan = household.recent_scans?.[0]
 
   return (
     <div className="card border-2 border-[var(--gold)]">
@@ -757,6 +807,18 @@ function ConfirmCount({
         {quantity}
       </p>
       <p className="mt-1 text-center text-lg font-bold break-words">{household.display_name}</p>
+
+      {/* Repeated here rather than left behind on the keypad: this is the screen
+          where the admissions actually go, and a family that ate an hour ago is
+          the one case where the count in front of the volunteer deserves a
+          second look. */}
+      {lastScan && (
+        <p className="mt-3 text-center text-sm font-bold text-[var(--gold-deep)]">
+          Already scanned at {scanTimeLabel(lastScan.at)}
+          {scanAgoLabel(lastScan.at) ? ` · ${scanAgoLabel(lastScan.at)}` : ''} —{' '}
+          {lastScan.quantity} admitted then.
+        </p>
+      )}
 
       <div className="mt-5 rounded-xl border-2 border-[var(--gold)] bg-[var(--cream)] p-4 text-center">
         <p className="text-lg font-black">Any children with them?</p>
@@ -927,6 +989,11 @@ function ManualSearch({ onPick }: { onPick: (h: Household) => void }) {
               {h.tickets_remaining} of {h.tickets_purchased} left
             </span>
           </span>
+          {h.recent_scans?.[0] && (
+            <span className="mt-1 block text-sm font-bold text-[var(--gold-deep)]">
+              Last scanned {scanTimeLabel(h.recent_scans[0].at)}
+            </span>
+          )}
         </button>
       ))}
       {!busy && term.trim().length >= 2 && results.length === 0 && (

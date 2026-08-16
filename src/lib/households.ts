@@ -13,6 +13,14 @@ export type PaymentStatus =
 
 export type PaymentMethod = 'square' | 'stripe' | 'zelle' | 'cash' | 'complimentary' | 'other'
 
+/** One earlier scan on a pass: when it happened, how many it let in, and where. */
+export type ScanMark = {
+  /** ISO 8601, UTC, whole seconds. Formatted for the reader on the device. */
+  at: string
+  quantity: number
+  device: string | null
+}
+
 export type Household = {
   id: string
   display_name: string
@@ -34,6 +42,11 @@ export type Household = {
   notes: string | null
   created_at: string
   updated_at: string
+  /**
+   * Scans already made against this pass, newest first. Present on every read a
+   * scanner or desk performs; absent on rows returned straight from a write.
+   */
+  recent_scans?: ScanMark[]
 }
 
 const COLUMNS = `
@@ -41,6 +54,40 @@ const COLUMNS = `
   amount_paid_cents, tickets_purchased, tickets_redeemed, tickets_remaining,
   children_under_6, pass_token, pass_enabled, source, source_record_id,
   square_order_id, is_test, notes, created_at, updated_at
+`
+
+/**
+ * The scan history a volunteer needs at the door: has this pass been used
+ * already, and when.
+ *
+ * Reversed scans are left out. A scan that was fully given back did not admit
+ * anyone, and listing it would have a volunteer challenging a family over a
+ * meal they never ate. Five is more than any real pass reaches, and the newest
+ * is the one that decides whether to ask a question.
+ *
+ * The timestamp is rendered here rather than shipped as a raw column so both
+ * clients parse one unambiguous shape — a plain UTC ISO string, no fractional
+ * seconds, no driver-specific date object.
+ */
+const SCANS_SELECT = `coalesce(scans.items, '[]'::json) as recent_scans`
+
+const SCANS_JOIN = `
+  left join lateral (
+    select json_agg(
+             json_build_object(
+               'at', to_char(s.created_at at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+               'quantity', s.quantity,
+               'device', s.device_name
+             )
+             order by s.created_at desc
+           ) as items
+      from (select created_at, quantity, device_name
+              from redemptions
+             where household_id = households.id
+               and reversed_at is null
+             order by created_at desc
+             limit 5) s
+  ) scans on true
 `
 
 /**
@@ -53,7 +100,9 @@ const COLUMNS = `
  */
 export async function findByToken(token: string): Promise<Household | null> {
   const found = await queryOne<Household & { merged_into_id: string | null }>(
-    `select ${COLUMNS}, merged_into_id from households where pass_token = $1`,
+    `select ${COLUMNS}, merged_into_id, ${SCANS_SELECT}
+       from households ${SCANS_JOIN}
+      where pass_token = $1`,
     [token],
   )
   if (!found) return null
@@ -62,7 +111,10 @@ export async function findByToken(token: string): Promise<Household | null> {
 }
 
 export async function findById(id: string): Promise<Household | null> {
-  return queryOne<Household>(`select ${COLUMNS} from households where id = $1`, [id])
+  return queryOne<Household>(
+    `select ${COLUMNS}, ${SCANS_SELECT} from households ${SCANS_JOIN} where id = $1`,
+    [id],
+  )
 }
 
 /**
@@ -92,8 +144,8 @@ export async function searchHouseholds(term: string, limit = 25): Promise<Househ
   //                      same name with 0 admissions, so the volunteer has to
   //                      guess which of two identical entries is the real one.
   return query<Household>(
-    `select ${COLUMNS}
-       from households
+    `select ${COLUMNS}, ${SCANS_SELECT}
+       from households ${SCANS_JOIN}
       where not is_test
         and merged_into_id is null
         and (display_name ilike '%' || $1 || '%'
@@ -325,7 +377,29 @@ export async function adjustTicketCount(
   return row!.result
 }
 
+function appBase(): string {
+  return process.env.APP_BASE_URL?.replace(/\/$/, '') ?? 'http://localhost:3000'
+}
+
 export function passUrl(token: string): string {
-  const base = process.env.APP_BASE_URL?.replace(/\/$/, '') ?? 'http://localhost:3000'
-  return `${base}/p/${token}`
+  return `${appBase()}/p/${token}`
+}
+
+/**
+ * Where a link in a mailing points, so the click can be attributed to a
+ * household before the guest is forwarded on.
+ *
+ * The pass token is reused rather than minted fresh. It is already the thing
+ * identifying this household in their inbox, it already survives a merge via
+ * `findByToken`, and a second per-household secret would be one more column to
+ * keep in step for no extra safety — the token grants a view of a pass whose
+ * event has already happened.
+ *
+ * Deliberately click tracking and not a tracking pixel. A 1×1 image would be
+ * prefetched by Apple Mail's privacy proxy on delivery and fetched through
+ * Google's image cache by Gmail, so the "opens" it produced would be a mixture
+ * of software and people with no way to separate them. A click is a person.
+ */
+export function trackedLinkUrl(token: string, target: string): string {
+  return `${appBase()}/r/${token}/${target}`
 }

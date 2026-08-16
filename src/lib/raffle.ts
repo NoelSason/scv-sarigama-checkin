@@ -7,14 +7,22 @@ import { query, queryOne } from './db'
  * passes get into the Sadhya but did not buy an entry — and never the seeded
  * demo households.
  *
+ * raffle_excluded is the one way out of the pool that is not about money: a
+ * household Square recorded with no announceable name (a card-present sale
+ * carries no cardholder name, so the webhook could only store the order id).
+ * They keep every ticket they paid for; they just cannot be read from a stage.
+ * See db/migrations/0016_raffle_exclusion.sql.
+ *
  * This filter is defined once and shared by every read here so the counter on
  * the stage, the names on the wheel, and the row the database actually picks
  * can never disagree about who is eligible. draw_raffle_winner() in
- * db/migrations/0005_raffle.sql repeats it deliberately: the invariant belongs
- * in the database too, not only in the process that happens to be calling.
+ * db/migrations/0016_raffle_exclusion.sql repeats it deliberately: the
+ * invariant belongs in the database too, not only in the process that happens
+ * to be calling.
  */
 const ELIGIBLE = `
   not h.is_test
+  and not h.raffle_excluded
   and h.payment_status = 'paid'
   and h.tickets_purchased > 0
   and not exists (select 1 from raffle_draws d

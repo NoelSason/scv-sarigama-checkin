@@ -1,7 +1,7 @@
 import { query } from '@/lib/db'
 import { logAudit, type Household } from '@/lib/households'
 import { testRedirectTarget } from './provider'
-import { sendPassEmail } from './index'
+import { sendPassEmail, sendThankYouEmail } from './index'
 
 /**
  * Send passes to anyone who has paid and does not have one yet.
@@ -304,6 +304,119 @@ export async function dispatchPendingPasses(
       actorType: 'system',
       // deduped is worth recording: it is the only visible trace that two
       // instances raced and the second one stood down.
+      metadata: { reason, sent, failed, deduped: claimed, recipients },
+    })
+  }
+
+  return { sent, failed, skipped: null, recipients }
+}
+
+/**
+ * Who is owed the after-the-event thank-you.
+ *
+ * Written as its own condition rather than reusing AWAITING_PASS, because the
+ * two mailings answer different questions about the same people.
+ *
+ * The audience is everyone who actually came: `tickets_redeemed > 0`, or an
+ * attendance mark somebody entered by hand for a family the scanner missed.
+ * Not everyone who paid — a household that bought four admissions and never
+ * arrived did not spend the day with us, and thanking them for it reads as a
+ * mailing list rather than a note.
+ *
+ * `pass_enabled` and the payment status are deliberately absent. Both describe
+ * whether a ticket still works, which stopped mattering the moment the event
+ * ended; whether somebody was there did not.
+ *
+ * `tickets_at_send` is not compared as it is for passes. A pass goes stale when
+ * the admission count changes; a thank-you says nothing about admissions and is
+ * never owed twice.
+ */
+export const AWAITING_THANKYOU = `
+  from households h
+ where not h.is_test
+   and h.merged_into_id is null
+   and coalesce(trim(h.email), '') <> ''
+   and (
+         h.tickets_redeemed > 0
+         or exists (select 1 from attendance_marks m where m.household_id = h.id)
+       )
+   and not exists (
+         select 1
+           from email_deliveries d
+          where d.household_id = h.id
+            and d.kind = 'thankyou'
+            and d.status = 'sent'
+            and lower(d.to_email) = lower(trim(h.email))
+       )`
+
+/**
+ * Send the thank-you to everyone still owed one.
+ *
+ * Same shape as `dispatchPendingPasses` and the same two safety valves, for the
+ * same reason: this reaches guests without a human pressing anything per
+ * household, and a test redirect left on would mark everybody as thanked while
+ * the mail went to one inbox.
+ *
+ * It is not called from the webhooks. Nothing about a payment means somebody is
+ * owed a thank-you, and the mailing is a decision about a day that is over —
+ * so it runs when the endpoint is called, and picks up where it left off.
+ */
+export async function dispatchThankYouEmails(
+  reason: string,
+  limit = MAX_PER_RUN,
+): Promise<DispatchResult> {
+  if (!autoSendEnabled()) {
+    return { sent: 0, failed: 0, skipped: 'disabled', recipients: [] }
+  }
+
+  const redirect = testRedirectTarget()
+  if (redirect) {
+    console.warn(
+      `[thankyou] skipped (${reason}): EMAIL_TEST_REDIRECT is set to ${redirect}. ` +
+        'Nobody is marked as thanked while the mail would only reach the test inbox.',
+    )
+    return { sent: 0, failed: 0, skipped: 'test-redirect', recipients: [] }
+  }
+
+  if (!process.env.THANKYOU_VIDEO_URL?.trim()) {
+    // The mailing is built around one link. Sending it with a button that
+    // forwards to the home page is worse than not sending it yet.
+    console.warn(`[thankyou] skipped (${reason}): THANKYOU_VIDEO_URL is not set.`)
+    return { sent: 0, failed: 0, skipped: 'disabled', recipients: [] }
+  }
+
+  const pending = await query<Household>(
+    `select h.* ${AWAITING_THANKYOU} order by h.created_at limit $1`,
+    [limit],
+  )
+  if (pending.length === 0) return { sent: 0, failed: 0, skipped: null, recipients: [] }
+
+  let sent = 0
+  let failed = 0
+  let claimed = 0
+  const recipients: string[] = []
+
+  for (const [i, household] of pending.entries()) {
+    try {
+      const result = await sendThankYouEmail(household, { auto: true })
+      if (result.ok) {
+        sent++
+        recipients.push(household.email ?? '')
+      } else if (result.reason === 'ALREADY_CLAIMED') {
+        claimed++
+      } else {
+        failed++
+      }
+    } catch (err) {
+      failed++
+      console.error(`[thankyou] send threw for ${household.id}:`, err)
+    }
+    if (i < pending.length - 1) await new Promise((r) => setTimeout(r, GAP_MS))
+  }
+
+  if (sent > 0 || failed > 0) {
+    await logAudit('thankyou_auto_sent', {
+      actorType: 'system',
       metadata: { reason, sent, failed, deduped: claimed, recipients },
     })
   }

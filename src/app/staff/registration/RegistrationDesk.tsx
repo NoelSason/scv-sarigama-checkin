@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import type { Household, PaymentMethod, PaymentStatus } from '@/lib/households'
+import { scanTimeLabel } from '@/lib/scan'
 import { StatusPill, TicketCounts } from '@/components/StatusPill'
 import { KasavuBand } from '@/components/onam'
 
@@ -288,6 +289,16 @@ function HouseholdPanel({
             under6={household.children_under_6}
           />
         </div>
+
+        {/* The same fact the History tab carries, one tap earlier. Half the
+            questions that reach this desk are "have they already eaten?", and
+            the answer is a time, not a count. */}
+        {household.recent_scans?.[0] && (
+          <p className="mt-3 text-sm font-bold text-[var(--gold-deep)]">
+            ⏱ Last scanned {scanTimeLabel(household.recent_scans[0].at)} ·{' '}
+            {household.recent_scans[0].quantity} admitted
+          </p>
+        )}
 
         <div className="mt-3 text-sm text-black/60">
           {reveal ? (

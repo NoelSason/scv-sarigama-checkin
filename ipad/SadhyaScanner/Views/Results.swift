@@ -157,6 +157,78 @@ struct ReturnedScreen: View {
     }
 }
 
+/// A door sale went through.
+///
+/// Deliberately neither green nor a gold flood: this is not an admission and it
+/// is not an undo, and a volunteer glancing across the hall must not read it as
+/// either. It states the money first, because that is the half of the
+/// transaction the app cannot prove — the cash is in someone's hand, and this
+/// screen is the only confirmation that it was written down.
+struct SoldScreen: View {
+    let sale: ScanFlow.Sale
+    let household: Household
+    let onContinue: () -> Void
+
+    var body: some View {
+        ZStack {
+            Palette.ink.ignoresSafeArea()
+
+            VStack(spacing: 12) {
+                Image(systemName: sale.method.collects ? "checkmark.seal.fill" : "gift.fill")
+                    .font(.system(size: 92, weight: .bold))
+                    .foregroundStyle(Palette.gold)
+
+                Text(sale.added > 0 ? "\(sale.added) ADDED" : "MARKED PAID")
+                    .font(.system(size: 62, weight: .black, design: .rounded))
+                    .foregroundStyle(.white)
+                    .monospacedDigit()
+
+                Text(household.displayName)
+                    .font(.system(size: 27, weight: .semibold, design: .serif))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+                    .padding(.horizontal, 60)
+
+                Text(sale.method.collects
+                     ? "\(Money.text(sale.amountCents)) \(sale.method.label.lowercased()) — recorded"
+                     : "No charge — recorded")
+                    .font(.system(size: 20, weight: .black, design: .rounded))
+                    .foregroundStyle(Palette.gold)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                    .background(Capsule().fill(Palette.gold.opacity(0.15)))
+                    .padding(.top, 4)
+
+                HStack(spacing: 10) {
+                    Text("\(household.ticketsRemaining)")
+                        .font(.system(size: 34, weight: .black, design: .rounded))
+                        .monospacedDigit()
+                    Text("REMAINING")
+                        .font(.system(size: 18, weight: .black, design: .rounded))
+                        .tracking(2)
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 26)
+                .padding(.vertical, 14)
+                .background(Capsule().fill(.white.opacity(0.12)))
+                .padding(.top, 10)
+
+                Button(action: onContinue) {
+                    Text("Now let them in →")
+                        .font(.system(size: 20, weight: .black, design: .rounded))
+                        .padding(.vertical, 18)
+                        .padding(.horizontal, 40)
+                }
+                .buttonStyle(SurfaceButton(tint: Palette.gold))
+                .frame(maxWidth: 420)
+                .padding(.top, 18)
+            }
+        }
+    }
+}
+
 /// Refused. States what happened to the tickets first — a volunteer's next
 /// question is always "did that go through?" and the answer is always no.
 struct RefusedScreen: View {

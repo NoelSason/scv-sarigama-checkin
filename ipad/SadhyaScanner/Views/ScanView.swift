@@ -175,6 +175,7 @@ struct ScanView: View {
                         household: household,
                         onChoose: { flow.propose($0, for: household) },
                         onGiveBack: { flow.giveBack(household: household, quantity: $0) },
+                        onSell: { flow.startSale(for: household) },
                         onCancel: { flow.reset() }
                     )
 
@@ -184,6 +185,27 @@ struct ScanView: View {
                         quantity: quantity,
                         onAdmit: { flow.admit(quantity, for: household) },
                         onBack: { flow.backToCount(household) }
+                    )
+
+                case .selling(let household):
+                    SellPanel(
+                        household: household,
+                        onReview: { added, method, amount in
+                            flow.proposeSale(ScanFlow.Sale(
+                                household: household,
+                                added: added,
+                                method: method,
+                                amountCents: amount
+                            ))
+                        },
+                        onCancel: { flow.cancelSale(household) }
+                    )
+
+                case .confirmingSale(let sale):
+                    SellConfirmPanel(
+                        sale: sale,
+                        onCommit: { flow.commitSale(sale) },
+                        onBack: { flow.backToSale(sale.household) }
                     )
 
                 default:
@@ -214,6 +236,10 @@ struct ScanView: View {
                 }
             )
             .transition(.opacity.combined(with: .scale(scale: 1.04)))
+
+        case .sold(let sale, let household):
+            SoldScreen(sale: sale, household: household) { flow.pick(household) }
+                .transition(.opacity)
 
         case .returned(let name, let restored, let remaining):
             ReturnedScreen(name: name, restored: restored, remaining: remaining) { flow.reset() }

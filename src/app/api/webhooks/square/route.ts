@@ -294,7 +294,20 @@ async function handlePayment(
   }
 
   const contact = await resolveContact(client, order, undefined, fullPayment)
-  const displayName = contact.name ?? contact.email ?? `Square order ${orderId}`
+
+  // A card-present sale on the Square terminal carries no buyer identity at
+  // all: no cardholder name, no billing address, and an instant-profile
+  // customer record that is still empty when the webhook fires. resolvedName is
+  // null in exactly that case, and the two paths below treat it differently.
+  //
+  //   INSERT — a row has to be called something, so fall back to the order id.
+  //   UPDATE — coalesce, so the placeholder is never written over a name that
+  //            is already there. payment.created and payment.updated arrive
+  //            seconds apart and a refund can land days later; without this
+  //            guard the later event overwrites whatever a volunteer typed at
+  //            the desk with `Square order …` again, silently, mid-event.
+  const resolvedName = contact.name ?? contact.email
+  const displayName = resolvedName ?? `Square order ${orderId}`
 
   const status = paymentStatusFor(entitlement)
   const amountCents = entitlement.amountCents
@@ -362,7 +375,7 @@ async function handlePayment(
 
     await query(
       `update households
-          set display_name       = $2,
+          set display_name       = coalesce($2, display_name),
               email              = coalesce($3, email),
               phone              = coalesce($4, phone),
               normalized_email   = coalesce($5, normalized_email),
@@ -375,9 +388,10 @@ async function handlePayment(
               square_payment_id  = coalesce($11, square_payment_id)
         where id = $1`,
       // notes is deliberately not touched on update: staff write in it.
+      // resolvedName, not displayName — see the comment where they are built.
       [
         householdId,
-        displayName,
+        resolvedName ?? null,
         contact.email,
         contact.phone,
         normalizeEmail(contact.email),

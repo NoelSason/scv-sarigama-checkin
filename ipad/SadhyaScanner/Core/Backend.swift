@@ -15,6 +15,12 @@ enum BackendError: LocalizedError {
     /// problem that is not there.
     case missing
     case offline
+    /// The server understood the request and declined it, by name.
+    ///
+    /// Distinct from `badResponse` because these are the refusals a volunteer
+    /// can act on — a number that is too low, a change the desk has to make —
+    /// and "the server answered 400" tells them none of that.
+    case refused(String)
     case badResponse(String)
 
     var errorDescription: String? {
@@ -24,6 +30,21 @@ enum BackendError: LocalizedError {
         case .passNotFound: return "That code is not a Sadhya pass."
         case .missing: return "This server has no sign-in endpoint for the app yet. Check the address, or deploy the latest site."
         case .offline: return "Could not reach the server."
+        case .refused(let code):
+            switch code {
+            case "BELOW_REDEEMED":
+                return "That is fewer admissions than this family has already used."
+            case "REASON_REQUIRED":
+                return "The change needs a reason. Get the admin."
+            case "INVALID_QUANTITY", "INVALID":
+                return "That number cannot be saved. A pass tops out at 50 admissions."
+            case "UNAUTHORIZED":
+                return "This iPad is not allowed to change tickets. Sign in again."
+            case "NOT_FOUND", "PASS_NOT_FOUND":
+                return "That pass is no longer there. Send them to the registration desk."
+            default:
+                return "The server would not save that change."
+            }
         case .badResponse(let detail): return detail
         }
     }
@@ -165,7 +186,54 @@ final class Backend: ObservableObject {
         ])
     }
 
+    // MARK: - Selling at the door
+
+    /// Change what a household bought.
+    ///
+    /// The endpoint takes a new total rather than a delta, and the database
+    /// function refuses to drop it below what has already been eaten — so the
+    /// caller sends the arithmetic it wants and reads the answer, rather than
+    /// two clients racing to add one each.
+    func addTickets(householdId: String, newTotal: Int, reason: String) async throws -> Household {
+        let response: HouseholdResponse = try await post(
+            "/api/staff/household/\(householdId)/tickets",
+            body: ["newTotal": newTotal, "reason": reason]
+        )
+        guard let household = response.household else {
+            throw BackendError.badResponse("The admissions were added, but the pass did not come back. Scan again to check.")
+        }
+        return household
+    }
+
+    /// Write down how a household paid.
+    ///
+    /// Nothing here touches ticket counts: paying does not buy admissions, it
+    /// unlocks the ones the pass already carries. `amountPaidCents` is the
+    /// running total on the record, not the sum handed over just now, so the
+    /// caller adds what it collected to what was already there.
+    func recordPayment(
+        householdId: String,
+        status: String,
+        method: String,
+        amountPaidCents: Int?
+    ) async throws -> Household {
+        var body: [String: Any] = ["status": status, "method": method]
+        if let amountPaidCents { body["amountPaidCents"] = amountPaidCents }
+        let response: HouseholdResponse = try await post(
+            "/api/staff/household/\(householdId)/payment",
+            body: body
+        )
+        guard let household = response.household else {
+            throw BackendError.badResponse("The payment was recorded, but the pass did not come back. Scan again to check.")
+        }
+        return household
+    }
+
     // MARK: - Transport
+
+    private struct HouseholdResponse: Decodable {
+        let household: Household?
+    }
 
     private struct SessionResponse: Decodable {
         struct Staff: Decodable { let name: String }
@@ -238,6 +306,12 @@ final class Backend: ObservableObject {
         }
         if code == 404 { throw BackendError.missing }
         guard (200..<300).contains(code) else {
+            // A declined change comes back as a 4xx carrying a named error. Say
+            // which one, so the volunteer reads the actual problem rather than
+            // a status code.
+            if let stated = try? decoder.decode(StatedError.self, from: data).error, !stated.isEmpty {
+                throw BackendError.refused(stated)
+            }
             throw BackendError.badResponse("The server answered \(code).")
         }
 

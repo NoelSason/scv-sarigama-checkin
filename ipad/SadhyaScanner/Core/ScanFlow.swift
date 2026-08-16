@@ -17,11 +17,43 @@ final class ScanFlow: ObservableObject {
         let redemptionId: String?
     }
 
+    /// Admissions bought at the door, and how they were paid for.
+    ///
+    /// Held as one value so the count, the method, and the amount cannot drift
+    /// apart between the screen that chose them and the screen that confirms
+    /// them — the confirmation has to be describing the thing about to happen.
+    struct Sale: Equatable {
+        let household: Household
+        /// Zero is legitimate: a family that already bought their admissions
+        /// and is only now paying for them.
+        let added: Int
+        let method: DoorPayment
+        /// What is being handed over right now, not what the record already says.
+        let amountCents: Int
+
+        var newTotal: Int { household.ticketsPurchased + added }
+
+        /// The line the audit trail keeps. It has to survive the evening on its
+        /// own: whoever reconciles the cash box next week reads this, not the
+        /// screen the volunteer was looking at.
+        func reason(device: String) -> String {
+            var text = added > 0
+                ? "Added \(added) at the door — \(method.label)"
+                : "Paid at the door — \(method.label)"
+            if method.collects { text += " \(Money.text(amountCents))" }
+            if !device.isEmpty { text += " · \(device)" }
+            return String(text.prefix(200))
+        }
+    }
+
     enum Phase: Equatable {
         case scanning
         case looking
         case found(Household)
         case confirming(Household, Int)
+        case selling(Household)
+        case confirmingSale(Sale)
+        case sold(Sale, Household)
         case working(String)
         case admitted(Receipt)
         case returned(name: String, restored: Int, remaining: Int)
@@ -71,6 +103,27 @@ final class ScanFlow: ObservableObject {
         set(.scanning)
     }
 
+    // MARK: - Selling at the door
+
+    func startSale(for household: Household) {
+        cancelDismissal()
+        Chime.shared.play(.tap)
+        set(.selling(household))
+    }
+
+    func proposeSale(_ sale: Sale) {
+        Chime.shared.play(.tap)
+        set(.confirmingSale(sale))
+    }
+
+    func backToSale(_ household: Household) {
+        set(.selling(household))
+    }
+
+    func cancelSale(_ household: Household) {
+        set(.found(household))
+    }
+
     // MARK: - Network
 
     private func lookUp(_ payload: String) async {
@@ -110,6 +163,68 @@ final class ScanFlow: ObservableObject {
                 // will show the truth.
                 fail("CONNECTION PROBLEM", "Nothing was confirmed. Check the signal and scan again.")
             }
+        }
+    }
+
+    /// Sell admissions, take the money, or both.
+    ///
+    /// Two calls, deliberately in this order and deliberately not merged. The
+    /// admissions are the thing the family is standing there for, so they go
+    /// first; if the payment call then fails, the volunteer is told plainly
+    /// that the tickets exist and the money is not written down yet — a state
+    /// the desk can fix. The reverse order would leave a paid-up family with no
+    /// admissions and no way to tell that from a family who has not paid.
+    func commitSale(_ sale: Sale) {
+        Task {
+            var pass = sale.household
+
+            if sale.added > 0 {
+                set(.working("Adding \(sale.added)…"))
+                do {
+                    pass = try await backend.addTickets(
+                        householdId: pass.id,
+                        newTotal: sale.newTotal,
+                        reason: sale.reason(device: backend.device)
+                    )
+                } catch let error as BackendError {
+                    fail("NOTHING WAS ADDED", (error.errorDescription ?? "The change did not save.") + " Do not take their money.")
+                    return
+                } catch {
+                    fail("NOTHING WAS ADDED", "Could not reach the server. Do not take their money — try again.")
+                    return
+                }
+            }
+
+            set(.working(sale.method.collects ? "Recording \(sale.method.label.lowercased())…" : "Recording the comp…"))
+            do {
+                pass = try await backend.recordPayment(
+                    householdId: pass.id,
+                    status: sale.method.wireStatus,
+                    method: sale.method.wireMethod,
+                    // The column is a running total, so what was collected now
+                    // is added to whatever the record already carried. A comp
+                    // is left alone: nothing was handed over.
+                    amountPaidCents: sale.method.collects
+                        ? (pass.amountPaidCents ?? 0) + sale.amountCents
+                        : nil
+                )
+            } catch {
+                if sale.added > 0 {
+                    fail(
+                        "PAYMENT NOT WRITTEN DOWN",
+                        "The \(sale.added) admission\(sale.added == 1 ? "" : "s") WERE added, but the payment did not save. Take the money to the registration desk before they eat."
+                    )
+                } else {
+                    fail(
+                        "PAYMENT NOT WRITTEN DOWN",
+                        "Nothing was changed. Send them to the registration desk."
+                    )
+                }
+                return
+            }
+
+            Chime.shared.play(.admitted)
+            land(.sold(sale, pass), dwell: successDwell, then: .found(pass))
         }
     }
 
@@ -167,14 +282,17 @@ final class ScanFlow: ObservableObject {
     /// Show a result, then hand the screen back to the camera on its own.
     ///
     /// Automatic because the alternative is a tablet left on a success screen
-    /// while the next family is already holding up a phone at it.
-    private func land(_ next: Phase, dwell: TimeInterval) {
+    /// while the next family is already holding up a phone at it. A sale is the
+    /// one result that does not end at the camera: the family who just bought
+    /// admissions is still standing there waiting to use them, so `then` sends
+    /// the screen back to their count instead.
+    private func land(_ next: Phase, dwell: TimeInterval, then destination: Phase = .scanning) {
         set(next)
         cancelDismissal()
         dismissal = Task {
             try? await Task.sleep(nanoseconds: UInt64(dwell * 1_000_000_000))
             guard !Task.isCancelled else { return }
-            set(.scanning)
+            set(destination)
         }
     }
 

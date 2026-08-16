@@ -1,12 +1,17 @@
 import { query, queryOne } from '@/lib/db'
-import { findById, logAudit, passUrl, type Household } from '@/lib/households'
+import { findById, logAudit, passUrl, trackedLinkUrl, type Household } from '@/lib/households'
 import type { EmailProvider } from './provider'
 import { QR_CID, renderPassQr } from './qr'
 import { createResendProvider } from './resend'
-import { renderPassEmail, type PassEmailVariant } from './templates'
+import { renderPassEmail, renderThankYouEmail, type PassEmailVariant } from './templates'
 
 export type { EmailMessage, EmailProvider, EmailResult } from './provider'
-export { PASS_EMAIL_SUBJECT, renderPassEmail } from './templates'
+export {
+  PASS_EMAIL_SUBJECT,
+  THANKYOU_EMAIL_SUBJECT,
+  renderPassEmail,
+  renderThankYouEmail,
+} from './templates'
 
 const globalForEmail = globalThis as unknown as { __onamEmailProvider?: EmailProvider }
 
@@ -124,6 +129,80 @@ export async function sendPassEmail(
   const deliveryId = row.id
 
   const result = await provider.send(message)
+
+  await query(
+    `update email_deliveries
+        set status              = $2,
+            to_email            = $3,
+            provider_message_id = $4,
+            error               = $5,
+            sent_at             = case when $2 = 'sent' then now() else null end
+      where id = $1`,
+    [
+      deliveryId,
+      result.ok ? 'sent' : 'failed',
+      result.deliveredTo,
+      result.ok ? result.providerMessageId : null,
+      result.ok ? null : result.error,
+    ],
+  )
+
+  if (!result.ok) {
+    return { ok: false, reason: 'SEND_FAILED', error: result.error }
+  }
+  return { ok: true, deliveryId, providerMessageId: result.providerMessageId }
+}
+
+/**
+ * Send a household the after-the-event thank-you and record the attempt.
+ *
+ * The same ledger and the same claim-by-insert as the pass send — `kind` is
+ * 'thankyou', so the unique index in 0014 stops two instances mailing the same
+ * household and never confuses this with a pass they are still owed.
+ *
+ * `passIsSendable` is deliberately not checked. That gate asks "is this a
+ * working ticket?", which is the right question for a pass and the wrong one
+ * here: somebody whose pass was disabled after the event still attended it, and
+ * has as much claim to the thank-you as anyone.
+ */
+export async function sendThankYouEmail(
+  household: Household,
+  extra: { auto?: boolean } = {},
+): Promise<SendPassResult> {
+  const to = household.email?.trim()
+  if (!to) {
+    return { ok: false, reason: 'NO_EMAIL', error: 'No email address on file' }
+  }
+
+  const provider = getEmailProvider()
+  // Both links are tracked per household, and the feedback one is only offered
+  // when a form is actually configured — see ThankYouLinks.
+  const message = renderThankYouEmail(household, {
+    video: trackedLinkUrl(household.pass_token, 'video'),
+    feedback: process.env.FEEDBACK_FORM_URL?.trim()
+      ? trackedLinkUrl(household.pass_token, 'feedback')
+      : null,
+  })
+
+  const auto = extra.auto === true
+  const row = await queryOne<{ id: string }>(
+    `insert into email_deliveries
+       (household_id, to_email, subject, status, provider, kind, tickets_at_send, auto)
+     values ($1, $2, $3, 'pending', $4, 'thankyou', $5, $6)
+     on conflict do nothing
+     returning id`,
+    [household.id, to, message.subject, provider.name, household.tickets_purchased, auto],
+  )
+  if (!row) {
+    return {
+      ok: false,
+      reason: 'ALREADY_CLAIMED',
+      error: 'Another run is already sending this thank-you',
+    }
+  }
+  const deliveryId = row.id
+
+  const result = await provider.send({ to, ...message })
 
   await query(
     `update email_deliveries
