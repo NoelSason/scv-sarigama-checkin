@@ -74,7 +74,10 @@ export const PROGRAM: ProgramItem[] = [
   { key: 'p26', at: '16:40', title: 'Kids art exhibit — appreciation', who: 'Avantika Jangeesh', phase: 'program' },
   { key: 'p27', number: 26, at: '16:45', title: 'The Pillars of Sarigama — Board of Trustees', who: '17 trustees', phase: 'program' },
   { key: 'p28', number: 27, at: '16:55', title: 'Jana Gana Mana', phase: 'program' },
-  { key: 'p29', number: 28, at: '17:00', until: '17:05', title: 'Vote of thanks', who: 'Abhilash', phase: 'program' },
+  { key: 'p29', number: 28, at: '17:00', title: 'Vote of thanks', who: 'Abhilash', phase: 'program' },
+  // The terminal marker. Gives the show a finish line to be measured against
+  // rather than leaving the last item's end implied.
+  { key: 'p30', at: '17:05', until: '17:05', title: 'Event ends', phase: 'program' },
 ]
 
 /** '15:35' → minutes since midnight. */

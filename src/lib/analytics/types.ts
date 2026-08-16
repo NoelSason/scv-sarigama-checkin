@@ -75,6 +75,14 @@ export type ProgramState = {
    * Null once finishing on time is no longer arithmetically possible.
    */
   compressionToFinishOnTime: number | null
+  /** The terminal run-sheet item has a real start — the show is over. */
+  finished: boolean
+  /** When it actually ended. */
+  actualEnd: string | null
+  /** Minutes from the call to order to the end. */
+  ranMinutes: number | null
+  /** How far behind it was at the very start, for the recovery story. */
+  startDriftMinutes: number | null
 }
 
 /**
@@ -317,32 +325,23 @@ export type OnamAnalytics = {
   }
 
   /**
-   * The catering order against what actually turned up.
+   * How the headcount moved in the final week.
    *
-   * The order was placed about a week out, against the headcount as it stood.
-   * Late demand then moved the headcount a long way, which is the single most
-   * expensive thing the day has to teach.
+   * The number people planned against was not the number that turned up, and
+   * it kept climbing right through to the morning of the event.
    */
-  catering: {
-    ordered: number
+  demand: {
     sold: number
     ate: number
-    /** Meals short against the people who actually ate. */
-    shortAgainstAte: number
-    /** Meals short against everything that was sold. */
-    shortAgainstSold: number
-    /** Admissions already on the books when the order went in. */
-    knownAtOrder: number
+    /** Admissions already on the books once every existing sale was in one place. */
+    knownAtBaseline: number
     /** Admissions added after that. */
     lateDemand: number
     /** Of the late demand, how much landed on the event day itself. */
     lateOnTheDay: number
-    /** Late demand as a share of what was known. */
+    /** Late demand as a share of what was already known. */
     latePercent: number
-    /** Running total by day, for the demand curve. */
     buildup: { day: string; label: string; added: number; running: number; baseline: boolean }[]
-    /** The day the running total passed the order. Null if it never did. */
-    crossedOn: string | null
   }
 
   /** What to do differently next year, each with the figure behind it. */

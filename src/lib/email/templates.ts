@@ -26,7 +26,7 @@ export const REMINDER_EMAIL_SUBJECT = 'Onam Sadhya — final details and your pa
 
 /** The after-the-event mailing: thanks, and the recording of the programmes. */
 export const THANKYOU_EMAIL_SUBJECT =
-  'Thank you for celebrating Onam with us 🌼 — the full program video is up'
+  'Thank you for celebrating Onam with us — the full program video is up'
 
 /**
  * Which mailing is being rendered.
@@ -291,8 +291,7 @@ export function renderThankYouEmail(
     '',
     'Thank you for spending Onam with us. More than a hundred families came',
     'through the doors and over three hundred of us sat down to the sadhya',
-    'together — and the day was exactly as loud and as full as it should have',
-    'been.',
+    'together.',
     '',
     '--- TO OUR VOLUNTEERS ---',
     'None of it happens without you. Thank you to everyone who built and dressed',
@@ -302,8 +301,9 @@ export function renderThankYouEmail(
     'there after the last one left. The day belonged to you.',
     '',
     '--- THE PROGRAMS ---',
-    "The whole stage lineup, start to finish. If you missed a performance — or",
-    "want to watch your own again — it's all here.",
+    'Watch all performances from this year on our YouTube channel. Consider',
+    'subscribing while you are there — it is where every Sarigama performance',
+    'ends up, and it is the easiest way to catch next year’s.',
     links.video,
     '',
     ...(feedbackHref
@@ -355,7 +355,7 @@ export function renderThankYouEmail(
         <tr>
           <td style="padding:18px 30px 0 30px;background-color:${CARD};font-family:${FONT};font-size:17px;line-height:1.6;color:${INK};">
             <p style="margin:0 0 14px 0;">Hi ${escapeHtml(name)},</p>
-            <p style="margin:0 0 14px 0;">Thank you for spending Onam with us. More than a hundred families came through the doors and over three hundred of us sat down to the sadhya together &mdash; and the day was exactly as loud and as full as it should have been.</p>
+            <p style="margin:0 0 14px 0;">Thank you for spending Onam with us. More than a hundred families came through the doors and over three hundred of us sat down to the sadhya together.</p>
           </td>
         </tr>
 
@@ -365,7 +365,7 @@ export function renderThankYouEmail(
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#EAF5EE;border:1px solid #b9dcc7;border-radius:14px;">
               <tr>
                 <td style="padding:18px 20px;font-family:${FONT};background-color:#EAF5EE;border-radius:14px;">
-                  <div style="font-size:11px;font-weight:800;letter-spacing:2.2px;text-transform:uppercase;color:${GREEN_MID};padding-bottom:8px;">&#10047; To our volunteers</div>
+                  <div style="font-size:11px;font-weight:800;letter-spacing:2.2px;text-transform:uppercase;color:${GREEN_MID};padding-bottom:8px;">To our volunteers</div>
                   <div style="font-size:16px;line-height:1.65;color:${INK};">None of it happens without you. Thank you to everyone who built and dressed the stage, put together the photobooth, ran the sound and the lights and every last cable, handled the food from start to finish, and served the sadhya leaf by leaf. You were there before the first guest arrived and still there after the last one left. The day belonged to you.</div>
                 </td>
               </tr>
@@ -379,8 +379,8 @@ export function renderThankYouEmail(
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#FFF1D6;border:1px solid ${GOLD};border-radius:14px;">
               <tr>
                 <td style="padding:18px 20px;font-family:${FONT};background-color:#FFF1D6;border-radius:14px;">
-                  <div style="font-size:11px;font-weight:800;letter-spacing:2.2px;text-transform:uppercase;color:${GOLD_DEEP};padding-bottom:6px;">&#127916; The programs</div>
-                  <div style="font-size:15px;line-height:1.6;color:${INK};padding-bottom:14px;">The whole stage lineup, start to finish. If you missed a performance &mdash; or want to watch your own again &mdash; it&rsquo;s all here.</div>
+                  <div style="font-size:11px;font-weight:800;letter-spacing:2.2px;text-transform:uppercase;color:${GOLD_DEEP};padding-bottom:6px;">The programs</div>
+                  <div style="font-size:15px;line-height:1.6;color:${INK};padding-bottom:14px;">Watch all performances from this year on our YouTube channel. Consider subscribing while you&rsquo;re there &mdash; it&rsquo;s where every Sarigama performance ends up, and it&rsquo;s the easiest way to catch next year&rsquo;s.</div>
                   <table role="presentation" cellpadding="0" cellspacing="0" border="0">
                     <tr>
                       <td align="center" style="background-color:#C05A12;border-radius:10px;">
@@ -402,7 +402,7 @@ export function renderThankYouEmail(
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:${CREAM};border:1px solid #e4d3a4;border-radius:14px;">
               <tr>
                 <td style="padding:18px 20px;font-family:${FONT};background-color:${CREAM};border-radius:14px;">
-                  <div style="font-size:11px;font-weight:800;letter-spacing:2.2px;text-transform:uppercase;color:${GOLD_DEEP};padding-bottom:6px;">&#9997; Tell us how it went</div>
+                  <div style="font-size:11px;font-weight:800;letter-spacing:2.2px;text-transform:uppercase;color:${GOLD_DEEP};padding-bottom:6px;">Tell us how it went</div>
                   <div style="font-size:15px;line-height:1.6;color:${INK};padding-bottom:14px;">We&rsquo;re already thinking about next year, and the people who were there are the only ones who can tell us what to change. It takes two minutes, and you can be as blunt as you like.</div>
                   <table role="presentation" cellpadding="0" cellspacing="0" border="0">
                     <tr>

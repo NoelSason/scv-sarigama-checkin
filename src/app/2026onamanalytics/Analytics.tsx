@@ -14,11 +14,9 @@ import {
   ShareBar,
 } from './charts'
 import { NoShows } from './NoShows'
-import { EventLog } from './EventLog'
 import { Program } from './Program'
 import { PassBehaviour } from './PassBehaviour'
-import { Tips } from './Tips'
-import { Catering } from './Catering'
+import { Demand } from './Demand'
 
 /*
  * The Onam 2026 post-event report.
@@ -129,7 +127,6 @@ export function Analytics({ initial }: { initial: OnamAnalytics }) {
 
   const h = data.headline
   const s = data.service
-  const m = data.money
 
   return (
     <div className="min-h-dvh">
@@ -197,14 +194,14 @@ export function Analytics({ initial }: { initial: OnamAnalytics }) {
           )}
         </section>
 
-        {/* -------------------------------------------------- catering */}
-        <section id="catering">
+        {/* ---------------------------------------------------- demand */}
+        <section id="demand">
           <SectionHead
-            title="What was cooked against who came"
-            blurb="The caterer needed a final number a week out. The headcount had not finished moving."
+            title="The headcount kept moving"
+            blurb="Any number fixed a week out was a number a quarter of the crowd had not joined yet."
           />
           <div className="mt-4">
-            <Catering data={data} />
+            <Demand data={data} />
           </div>
         </section>
 
@@ -301,69 +298,6 @@ export function Analytics({ initial }: { initial: OnamAnalytics }) {
             lane — which is roughly {Math.round(((s.peakFifteen?.guests ?? 0) / 80) * 100)}% of a
             full seating arriving inside fifteen minutes.
           </p>
-        </section>
-
-        {/* ---------------------------------------------------------- money */}
-        <section>
-          <SectionHead
-            title="The money"
-            blurb="Recorded against each family's ledger row, not inferred from a payment amount."
-          />
-          <div className="mt-4 grid gap-4 lg:grid-cols-2 lg:items-start">
-            <ChartFrame title="How people paid" subtitle="Share of everything collected.">
-              <ShareBar
-                rows={m.byMethod.map((r) => ({
-                  key: r.key,
-                  label: r.label,
-                  value: r.cents,
-                  detail: `${r.households} families · ${r.guests} admissions`,
-                }))}
-                unit="the money"
-                format={money}
-              />
-            </ChartFrame>
-
-            <div className="grid grid-cols-2 gap-3 self-start">
-              <Small label="Total collected" value={money(m.totalCents)} />
-              <Small label="Per admission" value={money(m.averagePerAdmissionCents)} hint="average" />
-              <Small label="Per family" value={money(m.averagePerHouseholdCents)} hint="average" />
-              <Small
-                label="Taken at the door"
-                value={money(m.walkInCents)}
-                hint={`${m.walkInAdmissions} walk-up admissions`}
-              />
-              {m.donationCents > 0 && (
-                <Small label="Donations" value={money(m.donationCents)} hint="storefront" />
-              )}
-              {m.abandonedCheckouts > 0 && (
-                <Small label="Abandoned checkouts" value={m.abandonedCheckouts} hint="never paid" />
-              )}
-            </div>
-          </div>
-
-          {data.registration.walkIns.length > 0 && (
-            <ChartFrame
-              title="Walk-ups, in the order they arrived"
-              subtitle="Sold at the desk on the day."
-            >
-              <ul className="divide-y divide-[var(--line)]">
-                {data.registration.walkIns.map((w) => (
-                  <li key={`${w.name}-${w.at}`} className="flex items-baseline gap-3 py-2 text-sm">
-                    <span className="w-16 shrink-0 tabular-nums text-black/50">
-                      {timeOfDay(w.at)}
-                    </span>
-                    <span className="flex-1 font-semibold">{w.name}</span>
-                    <span className="tabular-nums text-black/60">
-                      {w.guests} {w.guests === 1 ? 'seat' : 'seats'}
-                    </span>
-                    <span className="w-16 shrink-0 text-right font-bold tabular-nums">
-                      {money(w.cents)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </ChartFrame>
-          )}
         </section>
 
         {/* --------------------------------------------------- who came */}
@@ -602,26 +536,7 @@ export function Analytics({ initial }: { initial: OnamAnalytics }) {
             </ChartFrame>
           </div>
 
-          <div className="mt-4 grid gap-4 lg:grid-cols-2 lg:items-start">
-            <ChartFrame
-              title="When each channel's guests arrived"
-              subtitle="Walk-ups excluded — they arrived and bought in the same motion."
-            >
-              <ul className="space-y-2.5">
-                {data.insights.arrivalByChannel.map((r) => (
-                  <li key={r.key}>
-                    <div className="flex items-baseline justify-between gap-2 text-sm">
-                      <span className="font-semibold leading-snug">{r.label}</span>
-                      <span className="shrink-0 tabular-nums text-black/55">{r.guests} guests</span>
-                    </div>
-                    <div className="text-xs text-black/50">
-                      first {r.firstAt} · middle guest {r.medianAt} · last {r.lastAt}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </ChartFrame>
-
+          <div className="mt-4">
             <ChartFrame
               title="How far ahead people committed"
               subtitle="When each family's record was created, grouped by how close to the day that was."
@@ -723,32 +638,6 @@ export function Analytics({ initial }: { initial: OnamAnalytics }) {
             </ul>
           </section>
         )}
-
-        {/* ------------------------------------------------- next year */}
-        <section id="next-year">
-          <SectionHead
-            title="Tips for next year"
-            blurb="Drawn from what the day actually recorded. Each one shows the number behind it, and each moves as the numbers do."
-          />
-          <div className="mt-4">
-            <Tips tips={data.tips} />
-          </div>
-        </section>
-
-        {/* ----------------------------------------------------- full log */}
-        <section>
-          <SectionHead
-            title="Every recorded event"
-            blurb="One row for everything the system ever did — every scan, correction, payment, email, sign-in and sync."
-          />
-          <div className="mt-4">
-            <EventLog
-              categories={data.logCategories}
-              total={data.logTotal}
-              firstPage={data.logFirstPage}
-            />
-          </div>
-        </section>
 
         <footer className="pt-4 text-center">
           <KasavuRule />

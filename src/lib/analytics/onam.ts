@@ -13,7 +13,7 @@ import {
   type Tip,
 } from './types'
 import { PROGRAM, clockFromMinutes, planMinutes, plannedDuration } from './program'
-import { BASELINE_DAY, MEALS_ORDERED } from './catering'
+import { BASELINE_DAY } from './demand'
 
 export * from './types'
 export { LOG_PAGE, type LogRow } from './log-shape'
@@ -1120,6 +1120,12 @@ export async function loadOnamAnalytics(): Promise<OnamAnalytics> {
       ? null
       : workRemaining / minutesLeftOnTheClock
 
+  // Once the terminal item is marked the show is over, and a panel still
+  // forecasting a finish time for an event that already ended reads as broken.
+  const terminalItem = PROGRAM[PROGRAM.length - 1]
+  const terminalActual = laMinutes(actualFor(terminalItem))
+  const finished = terminalActual !== null
+
   const program: OnamAnalytics['program'] = {
     now: new Date().toISOString(),
     items: programItems,
@@ -1141,6 +1147,14 @@ export async function loadOnamAnalytics(): Promise<OnamAnalytics> {
             anchorActual + paceRatio * (plannedDuration(anchorIndex) + minutesRemainingPlanned),
           ),
     minutesRemainingPlanned,
+    finished,
+    actualEnd: terminalActual === null ? null : clockFromMinutes(terminalActual),
+    ranMinutes:
+      terminalActual !== null && programStartActual !== null
+        ? terminalActual - programStartActual
+        : null,
+    startDriftMinutes:
+      programStartActual === null ? null : programStartActual - programStartPlanned,
     recentDriftChange,
     recentSincePrevious,
     compressionToFinishOnTime,
@@ -1201,42 +1215,37 @@ export async function loadOnamAnalytics(): Promise<OnamAnalytics> {
   })
 
   /*
-   * -------------------------------------------------------------- catering
+   * ---------------------------------------------------------------- demand
    *
-   * The order was placed against the headcount as it stood about a week out.
-   * The bulk import is the closest thing to a snapshot of that moment — every
-   * record in it was a sale that already existed — so anything created after it
-   * is genuinely late demand rather than an artefact of when the data landed.
+   * The bulk import is the closest thing to a snapshot of what was known before
+   * the final week — every record in it was a sale that already existed — so
+   * anything created after it is genuinely late demand rather than an artefact
+   * of when the data landed.
    */
-  let cateringRunning = 0
+  let demandRunning = 0
   const buildup = intakeRows.map((r) => {
-    cateringRunning += num(r.guests)
+    demandRunning += num(r.guests)
     return {
       day: r.day,
       label: dayLabel(r.day),
       added: num(r.guests),
-      running: cateringRunning,
+      running: demandRunning,
       baseline: r.day === BASELINE_DAY,
     }
   })
 
-  const baselineRow = buildup.find((b) => b.baseline)
-  const knownAtOrder = baselineRow?.running ?? 0
-  const lateDemand = admissionsSold - knownAtOrder
+  const knownAtBaseline = buildup.find((b) => b.baseline)?.running ?? 0
+  const lateDemand = admissionsSold - knownAtBaseline
   const lateOnTheDay = num(buildup.find((b) => b.day === eventDay)?.added)
 
-  const catering: OnamAnalytics['catering'] = {
-    ordered: MEALS_ORDERED,
+  const demand: OnamAnalytics['demand'] = {
     sold: admissionsSold,
     ate: guestsWhoAte,
-    shortAgainstAte: Math.max(0, guestsWhoAte - MEALS_ORDERED),
-    shortAgainstSold: Math.max(0, admissionsSold - MEALS_ORDERED),
-    knownAtOrder,
+    knownAtBaseline,
     lateDemand,
     lateOnTheDay,
-    latePercent: knownAtOrder ? Math.round((lateDemand / knownAtOrder) * 100) : 0,
+    latePercent: knownAtBaseline ? Math.round((lateDemand / knownAtBaseline) * 100) : 0,
     buildup,
-    crossedOn: buildup.find((b) => b.running > MEALS_ORDERED)?.label ?? null,
   }
 
   /*
@@ -1282,25 +1291,25 @@ export async function loadOnamAnalytics(): Promise<OnamAnalytics> {
   }
 
   // The most expensive lesson of the day, and the one most likely to repeat.
-  if (catering.shortAgainstAte > 0 && catering.lateDemand > 0) {
+  if (demand.lateDemand > 0) {
     push({
       key: 'order-late',
       category: 'Sadya',
-      title: `Order later, or order for ${Math.round(catering.latePercent / 5) * 5}% more than the headcount shows`,
+      title: `Add about ${Math.round(demand.latePercent / 5) * 5}% on top of whatever the headcount says that week`,
       detail:
-        'The order was right for what was known when it was placed — the problem is that a quarter of the crowd had not bought yet. Either push the caterer deadline as late as they will take, or add a late-demand buffer on top of whatever the sheet says that week.',
-      evidence: `${MEALS_ORDERED} meals ordered against ${catering.knownAtOrder} admissions on the books at the time. ${catering.lateDemand} more arrived afterwards — ${catering.lateOnTheDay} of them on the day itself — finishing at ${catering.sold} sold and ${catering.ate} guests accounted for.`,
+        'Any number fixed a week out is a number a quarter of the crowd has not joined yet. Either push every deadline that depends on it as late as it will go, or carry a late-demand buffer on top of the sheet.',
+      evidence: `${demand.knownAtBaseline} admissions were on the books once every existing sale was in one place. ${demand.lateDemand} more arrived afterwards — ${demand.lateOnTheDay} of them on the day itself — finishing at ${demand.sold} sold and ${demand.ate} guests accounted for.`,
     })
   }
 
-  if (catering.lateOnTheDay > 0) {
+  if (demand.lateOnTheDay > 0) {
     push({
       key: 'day-of-demand',
       category: 'Money',
       title: 'The day itself is a sales channel, not an afterthought',
       detail:
-        'A large share of the late demand landed on the morning of the event — people deciding that day, and walk-ups at the door. Plan for it: a staffed desk, a card reader, and a few dozen meals of headroom rather than treating it as an exception.',
-      evidence: `${catering.lateOnTheDay} admissions were added on the event day, ${Math.round((catering.lateOnTheDay / catering.sold) * 100)}% of everything sold.`,
+        'A large share of the late demand landed on the morning of the event — people deciding that day, and walk-ups at the door. Plan for it: a staffed desk, a card reader, and real headroom rather than treating it as an exception.',
+      evidence: `${demand.lateOnTheDay} admissions were added on the event day, ${Math.round((demand.lateOnTheDay / demand.sold) * 100)}% of everything sold.`,
     })
   }
 
@@ -1642,7 +1651,7 @@ export async function loadOnamAnalytics(): Promise<OnamAnalytics> {
     logFirstPage,
 
     program,
-    catering,
+    demand,
     tips,
 
     insights: {
