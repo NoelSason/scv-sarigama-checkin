@@ -49,8 +49,7 @@ export async function GET(req: Request) {
     const p = `$${params.length}`
     where.push(
       `(action ilike ${p} or coalesce(actor,'') ilike ${p}
-        or coalesce(household,'') ilike ${p} or coalesce(detail,'') ilike ${p}
-        or coalesce(location,'') ilike ${p})`,
+        or coalesce(household,'') ilike ${p} or coalesce(detail,'') ilike ${p})`,
     )
   }
 

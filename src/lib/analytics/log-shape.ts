@@ -10,7 +10,12 @@
 
 export const LOG_PAGE = 100
 
-/** One row of `event_stream`, minus the columns this page does not publish. */
+/**
+ * One row of `event_stream`, minus the columns this page does not publish.
+ *
+ * Deliberately narrow: what happened, who did it, and which family it
+ * concerned. Nothing that would describe a guest beyond that.
+ */
 export type LogRow = {
   event_id: string
   occurred_at: string
@@ -19,7 +24,6 @@ export type LogRow = {
   actor: string | null
   actor_type: string | null
   actor_role: string | null
-  location: string | null
   request_path: string | null
   household: string | null
   detail: string | null

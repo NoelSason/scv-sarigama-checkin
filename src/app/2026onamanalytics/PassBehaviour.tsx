@@ -101,64 +101,19 @@ export function PassBehaviour({ data }: { data: OnamAnalytics }) {
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
-        <ChartFrame
-          title="What they opened it on"
-          subtitle="From the browser that loaded the pass."
-          footer={
-            p.botOpens > 0 ? (
-              <>
-                A further {p.botOpens} {p.botOpens === 1 ? 'open was' : 'opens were'} link-preview
-                fetches — a pass URL pasted into a chat, not a person. They are left out of every
-                figure here.
-              </>
-            ) : undefined
-          }
-        >
-          <ShareBar
-            rows={p.devices.map((d) => ({
-              key: d.key,
-              label: d.label,
-              value: d.opens,
-              detail: `${d.households} ${d.households === 1 ? 'family' : 'families'}`,
-            }))}
-            unit="opens"
-          />
-        </ChartFrame>
-
-        <div className="space-y-4">
-          <ChartFrame
-            title="How many times each family opened it"
-            subtitle="A pass gets re-opened, and shared around a family."
-          >
-            <DayBars
-              rows={p.opensPerHousehold.map((r) => ({
-                key: String(r.opens),
-                label: `${r.opens}×`,
-                value: r.households,
-                sub: r.households === 1 ? 'family' : 'families',
-              }))}
-            />
-          </ChartFrame>
-
-          <ChartFrame
-            title="Where they opened it from"
-            subtitle="Approximate, from the network the phone was on."
-          >
-            <ul className="space-y-1 text-sm">
-              {p.openLocations.slice(0, 8).map((l) => (
-                <li key={l.label} className="flex items-baseline justify-between gap-3">
-                  <span>{l.label}</span>
-                  <span className="tabular-nums text-black/55">
-                    {l.opens} {l.opens === 1 ? 'open' : 'opens'} · {l.households}{' '}
-                    {l.households === 1 ? 'family' : 'families'}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </ChartFrame>
-        </div>
-      </div>
+      <ChartFrame
+        title="How many times each family opened it"
+        subtitle="A pass gets re-opened, and shared around a family."
+      >
+        <DayBars
+          rows={p.opensPerHousehold.map((r) => ({
+            key: String(r.opens),
+            label: `${r.opens}×`,
+            value: r.households,
+            sub: r.households === 1 ? 'family' : 'families',
+          }))}
+        />
+      </ChartFrame>
 
       <p className="text-[15px] leading-relaxed text-black/70">
         {p.householdsWithoutEmail} of the {p.householdsWithoutEmail + p.householdsWithEmail} families

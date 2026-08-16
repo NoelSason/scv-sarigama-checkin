@@ -264,7 +264,6 @@ export type OnamAnalytics = {
     stripeEvents: number
     testHouseholds: number
     devices: NamedCount[]
-    scanLocations: NamedCount[]
     staffSignIns: number
   }
 
@@ -312,11 +311,7 @@ export type OnamAnalytics = {
     fastestMinutesToOpen: number | null
     householdsWhoOpened: number
     opensPerHousehold: { opens: number; households: number }[]
-    devices: { key: string; label: string; opens: number; households: number }[]
-    /** Link-preview fetchers, counted separately so they never read as guests. */
-    botOpens: number
     openVsArrival: { band: string; label: string; opens: number }[]
-    openLocations: { label: string; opens: number; households: number }[]
     householdsWithoutEmail: number
     householdsWithEmail: number
   }

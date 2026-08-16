@@ -141,7 +141,7 @@ export function EventLog({
           type="search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search a name, an action, a place…"
+          placeholder="Search a name or an action…"
           aria-label="Search the log"
           className="field flex-1"
         />
@@ -185,7 +185,6 @@ export function EventLog({
                   <span className="block text-xs text-black/50">
                     {r.actor ?? 'system'}
                     {r.actor_role && ` (${r.actor_role})`}
-                    {r.location && ` · ${r.location}`}
                   </span>
                 </span>
                 <span aria-hidden className="shrink-0 text-black/35">

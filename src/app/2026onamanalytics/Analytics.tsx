@@ -678,7 +678,7 @@ export function Analytics({ initial }: { initial: OnamAnalytics }) {
             <Small label="Volunteer sign-ins" value={data.integrity.staffSignIns} />
           </div>
 
-          <div className="mt-4 grid gap-4 lg:grid-cols-2 lg:items-start">
+          <div className="mt-4">
             <ChartFrame title="Which device did the checking in" subtitle="Guests admitted per scanner.">
               <ShareBar
                 rows={data.integrity.devices.map((d) => ({
@@ -691,19 +691,6 @@ export function Analytics({ initial }: { initial: OnamAnalytics }) {
               />
             </ChartFrame>
 
-            <ChartFrame
-              title="Where the scans came from"
-              subtitle="Approximate, from the network the device was on."
-            >
-              <ul className="space-y-1.5 text-sm">
-                {data.integrity.scanLocations.map((l) => (
-                  <li key={l.key} className="flex items-baseline justify-between gap-3">
-                    <span>{l.label}</span>
-                    <span className="tabular-nums text-black/60">{l.detail}</span>
-                  </li>
-                ))}
-              </ul>
-            </ChartFrame>
           </div>
 
           {data.integrity.testHouseholds > 0 && (

@@ -11,11 +11,12 @@ import { Analytics } from './Analytics'
  *
  * What that costs, and what is done about it:
  *
- *   * The page names guests. It shows no email address, no phone number, no
- *     home address and no payment identifier, and the log view is rendered from
- *     `event_stream` with the IP column left out. Anyone who reaches the URL
- *     learns who came to a community lunch — which was public information at
- *     the lunch.
+ *   * The page names guests and says how many seats they bought. It shows no
+ *     email address, no phone number, no home address and no payment
+ *     identifier, and it describes nobody's device or whereabouts — the log
+ *     publishes what the system did, not a profile of the person it did it
+ *     for. Anyone who reaches the URL learns who came to a community lunch,
+ *     which was public information at the lunch.
  *   * `robots: noindex, nofollow` (set app-wide) keeps it out of search.
  *   * The one write it allows is bounded by the ledger: a caller can only move
  *     a family's "they ate anyway" count between zero and the admissions that

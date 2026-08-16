@@ -75,23 +75,24 @@ type SliceRow = {
 /**
  * The columns the log publishes, on a page with no login.
  *
- * Two things `event_stream` has are deliberately not here:
+ * This is a record of what the SYSTEM did — a scan, a correction, an email, a
+ * sync — not a profile of the people it did it for. So the log publishes the
+ * action, who performed it and which family it concerned, and nothing that
+ * would describe a guest beyond that:
  *
- *   * `ip` and `actor_email` are simply not selected. Location stays at the
- *     city level the edge already gave us, which answers the only question
- *     worth asking ("was this scanned at the venue or from somewhere else")
- *     without publishing an address.
- *   * `detail` is a metadata blob, and the email rows carry the guest's
+ *   * No address, no device, no whereabouts. Those columns are simply not
+ *     selected, and nothing downstream can add them back.
+ *   * `detail` is a metadata blob, and the email rows carry the guest's own
  *     address inside it. Nobody reading this report needs it, and a public
  *     page is exactly where a harvestable list of addresses should not be, so
  *     they are masked on the way out rather than trusted not to appear.
  *
- * Masking here, in the one shared SELECT, means neither the first page nor the
- * paging route can forget to do it.
+ * Doing it here, in the one shared SELECT, means neither the first page nor the
+ * paging route can forget to.
  */
 export const LOG_SELECT = `
   select event_id, occurred_at, category, action, actor, actor_type, actor_role,
-         location, request_path, household,
+         request_path, household,
          regexp_replace(detail,
            '[[:alnum:]._%+-]+@[[:alnum:].-]+\\.[[:alpha:]]{2,}',
            '[email hidden]', 'gi') as detail
@@ -202,51 +203,19 @@ function laMinutes(value: unknown): number | null {
 }
 
 /**
- * A browser family from a user-agent string.
+ * Automated fetchers, matched so they can be excluded from click counts.
  *
- * Deliberately coarse. The question this answers is "what were people holding
- * when they opened their pass", and a version number cannot help with that.
- * Bots are called out rather than silently dropped: link-preview fetchers hit
- * the pass URL when it is pasted into a chat, and counting those as guests
- * would overstate how many people opened anything.
+ * Used only to throw rows away — never to describe anybody. A mail app or a
+ * chat client fetches a link the moment it is pasted, and counting those as a
+ * guest opening something would overstate every figure here.
  */
-/**
- * The bot test as a Postgres pattern, for the click queries.
- *
- * Deliberately the same alternation `browserFamily` uses below. Pass opens are
- * classified in TypeScript because their rows are already in memory for other
- * reasons; clicks are aggregated in the database, and pulling every click row
- * back just to filter it here would be worse. Two copies of one rule is the
- * cost — so they sit adjacent, and neither should be edited alone.
- */
-const BOT_UA = 'bot|facebookexternalhit|Twitterbot|HeadlessChrome|curl|Slackbot|WhatsApp'
+const BOT_UA =
+  'bot|crawler|spider|preview|facebookexternalhit|Twitterbot|Slackbot|WhatsApp|HeadlessChrome|curl|python-requests|GoogleOther|Discordbot'
 
-/** Names for the tracked links, for the analytics page. */
 const LINK_TARGET_LABELS: Record<string, string> = {
-  video: 'The programme video',
+  video: 'The programme recording',
   feedback: 'The feedback form',
-}
-
-function browserFamily(ua: string | null): { key: string; label: string; bot: boolean } {
-  const s = ua ?? ''
-  if (!s) return { key: 'unknown', label: 'Not recorded', bot: false }
-  if (new RegExp(BOT_UA, 'i').test(s))
-    return { key: 'bot', label: 'Link preview or crawler', bot: true }
-  if (/iPhone|iPod/.test(s)) {
-    if (/CriOS/.test(s)) return { key: 'iphone-chrome', label: 'iPhone — Chrome', bot: false }
-    if (/GSA/.test(s)) return { key: 'iphone-google', label: 'iPhone — Google app', bot: false }
-    return { key: 'iphone-safari', label: 'iPhone — Safari', bot: false }
-  }
-  if (/iPad/.test(s)) return { key: 'ipad', label: 'iPad', bot: false }
-  if (/Android/.test(s)) {
-    if (/SamsungBrowser/.test(s))
-      return { key: 'android-samsung', label: 'Android — Samsung Internet', bot: false }
-    return { key: 'android-chrome', label: 'Android — Chrome', bot: false }
-  }
-  if (/Macintosh/.test(s)) return { key: 'mac', label: 'Mac — desktop browser', bot: false }
-  if (/Windows/.test(s)) return { key: 'windows', label: 'Windows — desktop browser', bot: false }
-  if (/Linux|X11/.test(s)) return { key: 'linux', label: 'Linux — desktop browser', bot: false }
-  return { key: 'other', label: 'Something else', bot: false }
+  unknown: 'Something else',
 }
 
 /** "40 minutes" / "1h 40m" — drift as a plain span, without the direction word. */
@@ -412,11 +381,6 @@ export async function loadOnamAnalytics(): Promise<OnamAnalytics> {
         group by 1 order by 1`,
     ),
 
-    query<{ user_agent: string | null; opens: number; households: number }>(
-      `select user_agent, count(*)::int as opens, count(distinct household_id)::int as households
-         from audit_logs where action = 'pass_opened' group by 1`,
-    ),
-
     // Did they pull it up at the door, or hours beforehand?
     query<{ band: string; opens: number }>(
       `with firstscan as (select r.household_id, min(r.created_at) as sc
@@ -430,13 +394,6 @@ export async function loadOnamAnalytics(): Promise<OnamAnalytics> {
                    else 'well_before' end as band,
               count(*)::int as opens
          from opens join firstscan using (household_id) group by 1`,
-    ),
-
-    query<{ label: string; opens: number; households: number }>(
-      `select coalesce(nullif(concat_ws(', ', geo_city, geo_region), ''), 'Not recorded') as label,
-              count(*)::int as opens, count(distinct household_id)::int as households
-         from audit_logs where action = 'pass_opened'
-        group by 1 order by 2 desc limit 12`,
     ),
 
     query<{ no_email: number; with_email: number }>(
@@ -460,7 +417,6 @@ export async function loadOnamAnalytics(): Promise<OnamAnalytics> {
     gapRows,
     splitRows,
     deviceRows,
-    locationRows,
     emailRows,
     openRows,
     openDayRows,
@@ -624,12 +580,6 @@ export async function loadOnamAnalytics(): Promise<OnamAnalytics> {
         where ${REAL} ${dayScope} group by 1 order by 3 desc`,
     ),
 
-    query<{ key: string; n: number; guests: number }>(
-      `select coalesce(nullif(concat_ws(', ', r.geo_city, r.geo_region), ''), 'not recorded') as key,
-              count(*)::int as n, sum(${NET_ADMITTED})::int as guests
-         from redemptions r join households h on h.id = r.household_id
-        where ${REAL} ${dayScope} group by 1 order by 2 desc`,
-    ),
 
     query<{ kind: string; status: string; n: number }>(
       `select kind, status, count(*)::int as n from email_deliveries group by 1, 2`,
@@ -900,9 +850,7 @@ export async function loadOnamAnalytics(): Promise<OnamAnalytics> {
     timeToOpenRows,
     openSpeedRows,
     opensPerRows,
-    userAgentRows,
     openVsArrivalRows,
-    openLocationRows,
     emailAddressRows,
   ] = await behaviourPromise
 
@@ -1219,18 +1167,6 @@ export async function loadOnamAnalytics(): Promise<OnamAnalytics> {
     },
     other: { label: 'Something else', detail: 'Did not fall into any of the patterns above.' },
   }
-
-  const uaTotals = new Map<string, { label: string; opens: number; households: number; bot: boolean }>()
-  for (const row of userAgentRows) {
-    const fam = browserFamily(row.user_agent)
-    const cur = uaTotals.get(fam.key) ?? { label: fam.label, opens: 0, households: 0, bot: fam.bot }
-    cur.opens += num(row.opens)
-    cur.households += num(row.households)
-    uaTotals.set(fam.key, cur)
-  }
-  const deviceRowsForPass = [...uaTotals.entries()]
-    .map(([key, v]) => ({ key, label: v.label, opens: v.opens, households: v.households, bot: v.bot }))
-    .sort((a, b) => b.opens - a.opens)
 
   const OPEN_TIMING_LABELS: Record<string, string> = {
     at_the_door: 'Pulled it up at the door',
@@ -1675,12 +1611,6 @@ export async function loadOnamAnalytics(): Promise<OnamAnalytics> {
         count: num(r.guests),
         detail: `${num(r.n)} scans`,
       })),
-      scanLocations: locationRows.map((r) => ({
-        key: r.key,
-        label: r.key,
-        count: num(r.n),
-        detail: `${num(r.guests)} guests`,
-      })),
       staffSignIns: num(integrity?.sign_ins),
     },
 
@@ -1803,9 +1733,6 @@ export async function loadOnamAnalytics(): Promise<OnamAnalytics> {
         households: num(r.households),
       })),
 
-      devices: deviceRowsForPass.filter((d) => !d.bot),
-      botOpens: deviceRowsForPass.filter((d) => d.bot).reduce((s, d) => s + d.opens, 0),
-
       openVsArrival: (['at_the_door', 'same_afternoon', 'well_before', 'after_admitted'] as const)
         .map((band) => ({
           band,
@@ -1813,12 +1740,6 @@ export async function loadOnamAnalytics(): Promise<OnamAnalytics> {
           opens: num(openVsArrivalRows.find((r) => r.band === band)?.opens),
         }))
         .filter((r) => r.opens > 0),
-
-      openLocations: openLocationRows.map((r) => ({
-        label: r.label,
-        opens: num(r.opens),
-        households: num(r.households),
-      })),
 
       householdsWithoutEmail: num(emailAddressRows[0]?.no_email),
       householdsWithEmail: num(emailAddressRows[0]?.with_email),
