@@ -8,10 +8,13 @@ export const dynamic = 'force-dynamic'
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>
+  searchParams: Promise<{ error?: string; next?: string }>
 }) {
-  const { error } = await searchParams
-  if (await currentStaff()) redirect('/staff')
+  const { error, next } = await searchParams
+  // Somebody already signed in who lands here was sent by a link, not a
+  // password prompt — put them where they were going.
+  const target = next && next.startsWith('/') && !next.startsWith('//') ? next : '/staff'
+  if (await currentStaff()) redirect(target)
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center px-6 py-10">
@@ -27,6 +30,7 @@ export default async function LoginPage({
       </header>
 
       <form action={signInAction} className="mt-8 space-y-4">
+        <input type="hidden" name="next" value={target} />
         <div>
           <label htmlFor="password" className="mb-1 block font-semibold">
             Password

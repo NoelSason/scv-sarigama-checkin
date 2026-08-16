@@ -28,3 +28,17 @@ export type LogRow = {
   household: string | null
   detail: string | null
 }
+
+/**
+ * The same row with the columns the public page refuses to publish.
+ *
+ * Only ever produced behind a staff check. Kept as a separate type so a
+ * component that renders `LogRow` cannot accidentally be handed one of these
+ * and start printing addresses.
+ */
+export type AdminLogRow = LogRow & {
+  ip: string | null
+  location: string | null
+  user_agent: string | null
+  actor_email: string | null
+}

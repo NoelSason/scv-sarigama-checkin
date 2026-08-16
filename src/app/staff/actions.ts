@@ -20,11 +20,29 @@ import { signInShared, signOut } from '@/lib/auth'
  * action and one without. If you ever add another action, add it here.
  */
 
+/**
+ * Only a same-site path is followed after sign-in.
+ *
+ * `//evil.example` is a protocol-relative URL that browsers treat as absolute,
+ * so "starts with a slash" is not enough on its own — an open redirect on a
+ * login form is how a phishing page borrows your domain.
+ */
+function safeNext(value: unknown): string {
+  const next = String(value ?? '')
+  if (!next.startsWith('/') || next.startsWith('//')) return '/staff'
+  return next
+}
+
 export async function signInAction(formData: FormData): Promise<void> {
   const password = String(formData.get('password') ?? '')
+  const next = safeNext(formData.get('next'))
   const result = await signInShared(password)
-  if (!result.ok) redirect(`/staff/login?error=${encodeURIComponent(result.error)}`)
-  redirect('/staff')
+  if (!result.ok) {
+    redirect(
+      `/staff/login?error=${encodeURIComponent(result.error)}&next=${encodeURIComponent(next)}`,
+    )
+  }
+  redirect(next)
 }
 
 export async function signOutAction(): Promise<void> {

@@ -98,6 +98,18 @@ export const LOG_SELECT = `
            '[email hidden]', 'gi') as detail
     from event_stream`
 
+/**
+ * The same stream with everything on it, for the staff-only view.
+ *
+ * Deliberately a second constant rather than a flag threaded through the first:
+ * the public query cannot be talked into returning these columns by passing the
+ * wrong argument, because it does not mention them.
+ */
+export const LOG_SELECT_FULL = `
+  select event_id, occurred_at, category, action, actor, actor_type, actor_role,
+         actor_email, ip, location, user_agent, request_path, household, detail
+    from event_stream`
+
 function iso(value: unknown): string | null {
   if (!value) return null
   if (value instanceof Date) return value.toISOString()

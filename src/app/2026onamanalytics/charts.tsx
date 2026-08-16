@@ -72,7 +72,7 @@ export function ChartFrame({
   footer?: React.ReactNode
 }) {
   return (
-    <figure className="card m-0">
+    <figure className="card m-0 min-w-0">
       <figcaption>
         <h3 className="display text-lg leading-6">{title}</h3>
         {subtitle && <p className="mt-1 text-sm leading-snug text-black/60">{subtitle}</p>}

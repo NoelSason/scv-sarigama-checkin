@@ -2,7 +2,7 @@
 
 import { useRef, useState } from 'react'
 import type { NamedCount } from '@/lib/analytics/types'
-import { LOG_PAGE, type LogRow } from '@/lib/analytics/log-shape'
+import { LOG_PAGE, type AdminLogRow, type LogRow } from '@/lib/analytics/log-shape'
 
 /*
  * Every recorded event, one row each.
@@ -51,14 +51,22 @@ function when(iso: string): string {
   })
 }
 
+/** Present only on the staff view; absent from the public payload entirely. */
+function admin(row: LogRow): Partial<AdminLogRow> {
+  return row as AdminLogRow
+}
+
 export function EventLog({
   categories,
   total,
   firstPage,
+  full = false,
 }: {
   categories: NamedCount[]
   total: number
   firstPage: LogRow[]
+  /** Ask the server for the identifying columns too. Staff view only. */
+  full?: boolean
 }) {
   const [category, setCategory] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -86,6 +94,7 @@ export function EventLog({
     setFailed(false)
     try {
       const params = new URLSearchParams({ limit: String(LOG_PAGE), offset: String(offset) })
+      if (full) params.set('full', '1')
       if (forCategory) params.set('category', forCategory)
       if (forSearch) params.set('q', forSearch)
 
@@ -141,7 +150,7 @@ export function EventLog({
           type="search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search a name or an action…"
+          placeholder={full ? 'Search a name, action, place or address…' : 'Search a name or an action…'}
           aria-label="Search the log"
           className="field flex-1"
         />
@@ -185,6 +194,8 @@ export function EventLog({
                   <span className="block text-xs text-black/50">
                     {r.actor ?? 'system'}
                     {r.actor_role && ` (${r.actor_role})`}
+                    {full && admin(r).location && ` · ${admin(r).location}`}
+                    {full && admin(r).ip && ` · ${admin(r).ip}`}
                   </span>
                 </span>
                 <span aria-hidden className="shrink-0 text-black/35">
@@ -196,6 +207,10 @@ export function EventLog({
                   <Detail label="Category" value={CATEGORY_WORD[r.category] ?? r.category} />
                   <Detail label="Raw action" value={r.action} />
                   <Detail label="Route" value={r.request_path} />
+                  {full && <Detail label="Address" value={admin(r).ip ?? null} mono />}
+                  {full && <Detail label="Place" value={admin(r).location ?? null} />}
+                  {full && <Detail label="Device" value={admin(r).user_agent ?? null} mono />}
+                  {full && <Detail label="Staff email" value={admin(r).actor_email ?? null} />}
                   <Detail label="Detail" value={r.detail} mono />
                 </dl>
               )}
