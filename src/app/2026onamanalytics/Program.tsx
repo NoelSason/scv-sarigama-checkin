@@ -51,32 +51,70 @@ export function Program({ state, onChanged }: { state: ProgramState; onChanged: 
   }
 
   const behind = state.driftMinutes > 0
-  const startDrift =
-    state.programStartedAt && state.items.find((i) => i.key === 'p01')?.driftMinutes
+  const startDrift = state.startDriftMinutes
+  const done = state.finished
 
   const visible = state.items.filter((i) => showSetup || i.phase !== 'setup')
 
   return (
     <div>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Big
-          label="Running"
-          value={driftWords(state.driftMinutes)}
-          tone={behind ? (state.driftMinutes > 45 ? 'bad' : 'warn') : 'ok'}
-        />
-        <Big label="Now on stage" value={state.currentTitle ?? 'Not started'} small />
-        <Big
-          label="Finishes at this pace"
-          value={state.projectedEndAtPlannedPace ?? '—'}
-          hint={`run sheet said ${state.plannedEnd}`}
-          tone={behind ? 'warn' : 'ok'}
-        />
-        <Big
-          label="Still to run"
-          value={`${state.minutesRemainingPlanned} min`}
-          hint="at the planned lengths"
-        />
-      </div>
+      {/* Once the show is over the forecast columns are meaningless — what is
+          wanted then is the result, not a prediction of it. */}
+      {done ? (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <Big
+            label="Started"
+            value={state.items.find((i) => i.key === 'p01')?.actualAt ?? '—'}
+            hint={
+              startDrift !== null ? `${driftWords(startDrift)} · planned ${state.programPlannedAt}` : undefined
+            }
+            tone={startDrift !== null && startDrift > 20 ? 'warn' : undefined}
+          />
+          <Big
+            label="Ended"
+            value={state.actualEnd ?? '—'}
+            hint={`${driftWords(state.driftMinutes)} · planned ${state.plannedEnd}`}
+            tone={behind ? (state.driftMinutes > 45 ? 'bad' : 'warn') : 'ok'}
+          />
+          <Big
+            label="Ran for"
+            value={
+              state.ranMinutes === null
+                ? '—'
+                : `${Math.floor(state.ranMinutes / 60)}h ${state.ranMinutes % 60}m`
+            }
+            hint="call to order to the last word"
+          />
+          <Big
+            label="Time pulled back"
+            value={
+              startDrift === null ? '—' : `${Math.max(0, startDrift - state.driftMinutes)} min`
+            }
+            hint="over the course of the show"
+            tone="ok"
+          />
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <Big
+            label="Running"
+            value={driftWords(state.driftMinutes)}
+            tone={behind ? (state.driftMinutes > 45 ? 'bad' : 'warn') : 'ok'}
+          />
+          <Big label="Now on stage" value={state.currentTitle ?? 'Not started'} small />
+          <Big
+            label="Finishes at this pace"
+            value={state.projectedEndAtPlannedPace ?? '—'}
+            hint={`run sheet said ${state.plannedEnd}`}
+            tone={behind ? 'warn' : 'ok'}
+          />
+          <Big
+            label="Still to run"
+            value={`${state.minutesRemainingPlanned} min`}
+            hint="at the planned lengths"
+          />
+        </div>
+      )}
 
       {/* The recovery story: how much was lost at the start, how much is left. */}
       {typeof startDrift === 'number' && startDrift > 0 && (
@@ -87,8 +125,9 @@ export function Program({ state, onChanged }: { state: ProgramState; onChanged: 
           {state.driftMinutes < startDrift ? (
             <>
               {' '}
-              Since then the show has pulled back{' '}
-              <strong>{Math.round(startDrift - state.driftMinutes)} minutes</strong>, and is now{' '}
+              {done ? ' Over the afternoon it pulled back ' : ' Since then the show has pulled back '}
+              <strong>{Math.round(startDrift - state.driftMinutes)} minutes</strong>
+              {done ? ', finishing ' : ', and is now '}
               {driftWords(state.driftMinutes)}.
               {state.paceRatio !== null && state.paceRatio < 1 && (
                 <>
@@ -105,8 +144,8 @@ export function Program({ state, onChanged }: { state: ProgramState; onChanged: 
       )}
 
       {/* The cumulative number can look healthy while the show is quietly
-          slipping again. This is the pace right now. */}
-      {state.recentDriftChange !== null && state.recentSincePrevious && (
+          slipping again. This is the pace right now — only useful mid-show. */}
+      {!done && state.recentDriftChange !== null && state.recentSincePrevious && (
         <p className="mt-3 text-[15px] leading-relaxed text-black/75">
           Since <strong>{state.recentSincePrevious}</strong>,{' '}
           {state.recentDriftChange > 1 ? (
@@ -130,7 +169,7 @@ export function Program({ state, onChanged }: { state: ProgramState; onChanged: 
         </p>
       )}
 
-      {state.compressionToFinishOnTime !== null && state.compressionToFinishOnTime > 1.02 && (
+      {!done && state.compressionToFinishOnTime !== null && state.compressionToFinishOnTime > 1.02 && (
         <p className="mt-2 text-[15px] leading-relaxed text-black/75">
           To still finish at {state.plannedEnd}, the remaining{' '}
           {state.minutesRemainingPlanned} minutes of run sheet would have to fit into the time left
@@ -140,7 +179,7 @@ export function Program({ state, onChanged }: { state: ProgramState; onChanged: 
         </p>
       )}
 
-      {state.projectedEndAtObservedPace && state.projectedEndAtPlannedPace && (
+      {!done && state.projectedEndAtObservedPace && state.projectedEndAtPlannedPace && (
         <p className="mt-2 text-sm leading-relaxed text-black/60">
           Two ways to read the finish: <strong>{state.projectedEndAtPlannedPace}</strong> if every
           remaining item takes exactly its planned length, or{' '}
@@ -157,7 +196,9 @@ export function Program({ state, onChanged }: { state: ProgramState; onChanged: 
 
       <div className="mt-4 flex items-center justify-between gap-3">
         <p className="text-sm text-black/55">
-          Tap an item when it starts. Everything after it re-times itself.
+          {done
+            ? 'Every item, planned against what actually happened.'
+            : 'Tap an item when it starts. Everything after it re-times itself.'}
         </p>
         <button
           type="button"

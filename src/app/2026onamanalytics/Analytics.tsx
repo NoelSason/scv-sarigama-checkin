@@ -209,7 +209,11 @@ export function Analytics({ initial }: { initial: OnamAnalytics }) {
         <section id="schedule">
           <SectionHead
             title="Keeping to time"
-            blurb="The printed run sheet against the actual clock. Tap an item as it starts and everything after it re-times itself."
+            blurb={
+              data.program.finished
+                ? 'The printed run sheet against the clock it actually ran to.'
+                : 'The printed run sheet against the actual clock. Tap an item as it starts and everything after it re-times itself.'
+            }
           />
           <div className="mt-4">
             <Program state={data.program} onChanged={refresh} />
